@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Calendar, Search } from "lucide-react";
 import { useState } from "react";
 import { useListPosts } from "../hooks/useQueries";
-import { extractCoverImageUrl, getVisibleTags } from "../utils/imageUtils";
+import { getVisibleTags } from "../utils/imageUtils";
 
 const CATEGORY_LABELS: Record<string, string> = {
   all: "All Posts",
@@ -140,8 +140,7 @@ export default function BlogPage() {
               data-ocid="blog.posts.list"
             >
               {filtered.map((post, i) => {
-                // Use imageUtils to extract cover image from tags
-                const coverUrl = extractCoverImageUrl(post.tags || []);
+                const coverUrl = post.coverImage?.getDirectURL() ?? null;
                 const visibleTags = getVisibleTags(post.tags || []);
                 return (
                   <div key={post.id} data-ocid={`blog.item.${i + 1}`}>

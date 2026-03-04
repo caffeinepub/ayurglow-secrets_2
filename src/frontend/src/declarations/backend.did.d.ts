@@ -73,8 +73,8 @@ export interface _SERVICE {
       string,
       Array<string>,
       boolean,
-      [] | [string],
-      Array<string>,
+      [] | [ExternalBlob],
+      Array<ExternalBlob>,
     ],
     BlogPost
   >,
@@ -95,8 +95,8 @@ export interface _SERVICE {
       string,
       Array<string>,
       boolean,
-      [] | [string],
-      Array<string>,
+      [] | [ExternalBlob],
+      Array<ExternalBlob>,
     ],
     BlogPost
   >,

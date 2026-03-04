@@ -43,7 +43,7 @@ export enum Category {
 }
 export interface backendInterface {
     addComment(postId: string, authorName: string, content: string): Promise<Comment>;
-    createPost(title: string, category: string, subcategory: string, content: string, excerpt: string, tags: Array<string>, isPublished: boolean, coverImageId: string | null, contentImageIds: Array<string>): Promise<BlogPost>;
+    createPost(title: string, category: string, subcategory: string, content: string, excerpt: string, tags: Array<string>, isPublished: boolean, coverImage: ExternalBlob | null, contentImages: Array<ExternalBlob>): Promise<BlogPost>;
     deletePost(id: string): Promise<void>;
     getCategories(): Promise<Array<string>>;
     getPost(id: string): Promise<BlogPost>;
@@ -51,5 +51,5 @@ export interface backendInterface {
     listPosts(): Promise<Array<BlogPost>>;
     listPostsByCategory(category: string): Promise<Array<BlogPost>>;
     listPostsBySubcategory(subcategory: string): Promise<Array<BlogPost>>;
-    updatePost(id: string, title: string, category: string, subcategory: string, content: string, excerpt: string, tags: Array<string>, isPublished: boolean, coverImageId: string | null, contentImageIds: Array<string>): Promise<BlogPost>;
+    updatePost(id: string, title: string, category: string, subcategory: string, content: string, excerpt: string, tags: Array<string>, isPublished: boolean, coverImage: ExternalBlob | null, contentImages: Array<ExternalBlob>): Promise<BlogPost>;
 }

@@ -5,7 +5,6 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Heart, Leaf, Shield, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { useListPosts } from "../hooks/useQueries";
-import { extractCoverImageUrl } from "../utils/imageUtils";
 
 const categories = [
   {
@@ -399,7 +398,7 @@ export default function HomePage() {
               data-ocid="home.blog.list"
             >
               {featuredPosts.map((post, i) => {
-                const coverUrl = extractCoverImageUrl(post.tags || []);
+                const coverUrl = post.coverImage?.getDirectURL() ?? null;
                 return (
                   <motion.div
                     key={post.id}

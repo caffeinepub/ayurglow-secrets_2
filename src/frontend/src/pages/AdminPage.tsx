@@ -48,30 +48,20 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import type { BlogPost } from "../backend.d";
-import { useActor } from "../hooks/useActor";
+import { ExternalBlob } from "../backend";
+import type { BlogPost, ExternalBlob as ExternalBlobType } from "../backend.d";
 import {
   useCreatePost,
   useDeletePost,
   useListPosts,
   useUpdatePost,
 } from "../hooks/useQueries";
-import { StorageClient } from "../utils/StorageClient";
-import {
-  addContentImageToTags,
-  addCoverImageToTags,
-  buildStorageUrl,
-  extractContentImageUrls,
-  extractCoverImageUrl,
-  getVisibleTags,
-  removeContentImageFromTags,
-  updateContentImageSizeInTags,
-} from "../utils/imageUtils";
+import { getVisibleTags } from "../utils/imageUtils";
 
 type ImageSize = "small" | "medium" | "large" | "full";
 
 interface UploadedImage {
-  hash: string;
+  blob: ExternalBlob | ExternalBlobType;
   previewUrl: string;
   size: ImageSize;
   name: string;
@@ -83,9 +73,6 @@ interface PostForm {
   category: string;
   subcategory: string;
   excerpt: string;
-  /** Internal tags array — includes __cover__ and __img__ special tags */
-  tags: string[];
-  /** Comma-separated visible tags only (what user types) */
   visibleTagsInput: string;
   content: string;
   isPublished: boolean;
@@ -98,7 +85,6 @@ const emptyForm: PostForm = {
   category: "health",
   subcategory: "",
   excerpt: "",
-  tags: [],
   visibleTagsInput: "",
   content: "",
   isPublished: false,
@@ -126,20 +112,19 @@ export default function AdminPage() {
   const createPost = useCreatePost();
   const updatePost = useUpdatePost();
   const deletePost = useDeletePost();
-  const { actor: _actor } = useActor();
 
   const [activeTab, setActiveTab] = useState("posts");
   const [editingPost, setEditingPost] = useState<BlogPost | null>(null);
   const [form, setForm] = useState<PostForm>(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Image state - local UI representations
+  // Image state
   const [coverImage, setCoverImage] = useState<UploadedImage | null>(null);
   const [contentImages, setContentImages] = useState<UploadedImage[]>([]);
-  const [uploadingCover, setUploadingCover] = useState(false);
-  const [uploadingContent, setUploadingContent] = useState(false);
   const [coverUploadProgress, setCoverUploadProgress] = useState(0);
   const [contentUploadProgress, setContentUploadProgress] = useState(0);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [isUploadingContent, setIsUploadingContent] = useState(false);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const contentInputRef = useRef<HTMLInputElement>(null);
@@ -184,7 +169,6 @@ export default function AdminPage() {
     let newEnd = end;
 
     if (type === "normal") {
-      // Strip **bold**, *italic*, <color:...>...</color>
       formatted = selected
         .replace(/\*\*([^*]+)\*\*/g, "$1")
         .replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, "$1")
@@ -212,102 +196,70 @@ export default function AdminPage() {
     }, 0);
   };
 
-  const getStorageClient = () => {
-    const config = (window as any).__CAFFEINE_CONFIG__;
-    if (!config) {
-      throw new Error("Caffeine config not available");
-    }
-    return new StorageClient(
-      "default",
-      config.storageGatewayUrl,
-      config.backendCanisterId,
-      config.projectId,
-      config.agent,
-    );
-  };
-
+  // Cover image: read bytes → create ExternalBlob with progress → store blob + local preview
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploadingCover(true);
+    setIsUploadingCover(true);
     setCoverUploadProgress(0);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const storage = getStorageClient();
-      const { hash } = await storage.putFile(bytes, (pct) =>
+      const blob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
         setCoverUploadProgress(pct),
       );
       const previewUrl = URL.createObjectURL(file);
-
-      setCoverImage({ hash, previewUrl, size: "full", name: file.name });
-
-      // Embed hash into tags
-      setForm((f) => ({
-        ...f,
-        tags: addCoverImageToTags(f.tags, hash),
-      }));
-
-      toast.success("Cover image uploaded!");
+      setCoverImage({ blob, previewUrl, size: "full", name: file.name });
+      toast.success(
+        "Cover image ready! It will upload when you save the post.",
+      );
     } catch (err) {
-      toast.error("Failed to upload cover image.");
-      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Cover image error:", err);
+      toast.error(`Failed to prepare cover image: ${msg}`);
     } finally {
-      setUploadingCover(false);
+      setIsUploadingCover(false);
       setCoverUploadProgress(0);
       if (coverInputRef.current) coverInputRef.current.value = "";
     }
   };
 
   const handleRemoveCover = () => {
+    if (coverImage?.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverImage.previewUrl);
+    }
     setCoverImage(null);
-    setForm((f) => ({
-      ...f,
-      tags: f.tags.filter((t) => !t.startsWith("__cover__:")),
-    }));
   };
 
+  // Content images: same approach — store blobs for submit time
   const handleContentImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    setUploadingContent(true);
+    setIsUploadingContent(true);
     setContentUploadProgress(0);
     try {
-      const storage = getStorageClient();
-      let currentCount = contentImages.length;
-
+      const newImages: UploadedImage[] = [];
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const { hash } = await storage.putFile(bytes, (pct) =>
+        const blob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
           setContentUploadProgress(pct),
         );
         const previewUrl = URL.createObjectURL(file);
-        const newImg: UploadedImage = {
-          hash,
-          previewUrl,
-          size: "medium",
-          name: file.name,
-        };
-
-        const imgIndex = currentCount;
-        currentCount++;
-
-        setContentImages((prev) => [...prev, newImg]);
-        setForm((f) => ({
-          ...f,
-          tags: addContentImageToTags(f.tags, imgIndex, hash, "medium"),
-        }));
+        newImages.push({ blob, previewUrl, size: "medium", name: file.name });
       }
-
-      toast.success(`${files.length} image(s) uploaded!`);
+      setContentImages((prev) => [...prev, ...newImages]);
+      toast.success(
+        `${files.length} image(s) ready! They will upload when you save the post.`,
+      );
     } catch (err) {
-      toast.error("Failed to upload content image(s).");
-      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Content image error:", err);
+      toast.error(`Failed to prepare image(s): ${msg}`);
     } finally {
-      setUploadingContent(false);
+      setIsUploadingContent(false);
       setContentUploadProgress(0);
       if (contentInputRef.current) contentInputRef.current.value = "";
     }
@@ -329,26 +281,33 @@ export default function AdminPage() {
   };
 
   const removeContentImage = (index: number) => {
-    setContentImages((prev) => prev.filter((_, i) => i !== index));
-    setForm((f) => ({
-      ...f,
-      tags: removeContentImageFromTags(f.tags, index),
-    }));
+    setContentImages((prev) => {
+      const img = prev[index];
+      if (img?.previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(img.previewUrl);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const updateImageSize = (index: number, size: ImageSize) => {
     setContentImages((prev) =>
       prev.map((img, i) => (i === index ? { ...img, size } : img)),
     );
-    setForm((f) => ({
-      ...f,
-      tags: updateContentImageSizeInTags(f.tags, index, size),
-    }));
   };
 
   const resetForm = () => {
     setForm(emptyForm);
     setEditingPost(null);
+    // Revoke any blob URLs
+    if (coverImage?.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverImage.previewUrl);
+    }
+    for (const img of contentImages) {
+      if (img.previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(img.previewUrl);
+      }
+    }
     setCoverImage(null);
     setContentImages([]);
   };
@@ -357,15 +316,12 @@ export default function AdminPage() {
     setEditingPost(post);
 
     const visibleTags = getVisibleTags(post.tags || []);
-    const existingCoverUrl = extractCoverImageUrl(post.tags || []);
-    const existingContentImgs = extractContentImageUrls(post.tags || []);
 
     setForm({
       title: post.title,
       category: post.category,
       subcategory: post.subcategory,
       excerpt: post.excerpt,
-      tags: post.tags || [],
       visibleTagsInput: visibleTags.join(", "),
       content: post.content,
       isPublished: post.isPublished,
@@ -377,16 +333,12 @@ export default function AdminPage() {
         : new Date().toISOString().slice(0, 10),
     });
 
-    // Restore cover image UI
-    if (existingCoverUrl) {
-      // Extract hash directly from the cover tag
-      const coverTag = (post.tags || []).find((t) =>
-        t.startsWith("__cover__:"),
-      );
-      const coverHash = coverTag ? coverTag.slice("__cover__:".length) : "";
+    // Restore cover image from ExternalBlob
+    if (post.coverImage) {
+      const url = post.coverImage.getDirectURL();
       setCoverImage({
-        hash: coverHash,
-        previewUrl: existingCoverUrl,
+        blob: post.coverImage,
+        previewUrl: url,
         size: "full",
         name: "Existing cover",
       });
@@ -394,21 +346,15 @@ export default function AdminPage() {
       setCoverImage(null);
     }
 
-    // Restore content images UI
-    const restoredContentImages: UploadedImage[] = existingContentImgs.map(
-      (img) => {
-        const hash =
-          (post.tags || [])
-            .find((t) => t.startsWith(`__img__:${img.index}:`))
-            ?.split(":")?.[3] ?? "";
-        return {
-          hash,
-          previewUrl: img.url,
-          size: img.size as ImageSize,
-          name: `Image ${img.index + 1}`,
-        };
-      },
-    );
+    // Restore content images from ExternalBlob array
+    const restoredContentImages: UploadedImage[] = (
+      post.contentImages || []
+    ).map((blob, i) => ({
+      blob,
+      previewUrl: blob.getDirectURL(),
+      size: "medium" as ImageSize,
+      name: `Image ${i + 1}`,
+    }));
     setContentImages(restoredContentImages);
 
     setActiveTab("create");
@@ -424,16 +370,10 @@ export default function AdminPage() {
       return;
     }
 
-    // Merge visible tags into the full tags array (preserve __cover__ and __img__ tags)
-    const visibleTags = form.visibleTagsInput
+    const tags = form.visibleTagsInput
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-
-    const specialTags = form.tags.filter(
-      (t) => t.startsWith("__cover__:") || t.startsWith("__img__:"),
-    );
-    const finalTags = [...specialTags, ...visibleTags];
 
     const isPublished = publish;
 
@@ -446,10 +386,10 @@ export default function AdminPage() {
           subcategory: form.subcategory,
           content: form.content,
           excerpt: form.excerpt,
-          tags: finalTags,
+          tags,
           isPublished,
-          coverImageId: null,
-          contentImageIds: [],
+          coverImage: (coverImage?.blob as ExternalBlob) ?? null,
+          contentImages: contentImages.map((img) => img.blob as ExternalBlob),
         });
         toast.success("Post updated successfully!");
       } else {
@@ -459,10 +399,10 @@ export default function AdminPage() {
           subcategory: form.subcategory,
           content: form.content,
           excerpt: form.excerpt,
-          tags: finalTags,
+          tags,
           isPublished,
-          coverImageId: null,
-          contentImageIds: [],
+          coverImage: (coverImage?.blob as ExternalBlob) ?? null,
+          contentImages: contentImages.map((img) => img.blob as ExternalBlob),
         });
         toast.success(isPublished ? "Post published!" : "Draft saved!");
       }
@@ -470,7 +410,8 @@ export default function AdminPage() {
       resetForm();
       setActiveTab("posts");
     } catch (err) {
-      toast.error("Failed to save post. Please try again.");
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to save post: ${msg}`);
       console.error(err);
     }
   };
@@ -487,11 +428,6 @@ export default function AdminPage() {
   };
 
   const isPending = createPost.isPending || updatePost.isPending;
-
-  // Derive cover preview URL — prefer local blob URL for new uploads, fall back to storage URL
-  const coverPreviewUrl =
-    coverImage?.previewUrl ||
-    (coverImage?.hash ? buildStorageUrl(coverImage.hash) : null);
 
   return (
     <main className="min-h-screen" data-ocid="admin.page">
@@ -593,7 +529,7 @@ export default function AdminPage() {
                     </TableHeader>
                     <TableBody>
                       {posts.map((post, i) => {
-                        const coverUrl = extractCoverImageUrl(post.tags || []);
+                        const coverUrl = post.coverImage?.getDirectURL();
                         return (
                           <TableRow
                             key={post.id}
@@ -606,6 +542,11 @@ export default function AdminPage() {
                                     src={coverUrl}
                                     alt={post.title}
                                     className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (
+                                        e.target as HTMLImageElement
+                                      ).style.display = "none";
+                                    }}
                                   />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-white/50 text-lg">
@@ -786,10 +727,10 @@ export default function AdminPage() {
                     Cover Image
                   </h2>
 
-                  {coverPreviewUrl ? (
+                  {coverImage ? (
                     <div className="relative rounded-xl overflow-hidden border border-border">
                       <img
-                        src={coverPreviewUrl}
+                        src={coverImage.previewUrl}
                         alt="Cover preview"
                         className="w-full h-52 object-cover"
                       />
@@ -809,11 +750,11 @@ export default function AdminPage() {
                       onClick={() => coverInputRef.current?.click()}
                       data-ocid="admin.cover.dropzone"
                     >
-                      {uploadingCover ? (
+                      {isUploadingCover ? (
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
                           <p className="text-sm font-medium">
-                            Uploading cover image...
+                            Preparing cover image...
                           </p>
                           {coverUploadProgress > 0 && (
                             <div className="w-48">
@@ -837,7 +778,7 @@ export default function AdminPage() {
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Image className="w-10 h-10 opacity-40" />
                           <p className="text-sm font-medium">
-                            Click to upload cover image (any size)
+                            Click to select cover image
                           </p>
                           <p className="text-xs">
                             JPG, PNG, WebP · Any file size supported
@@ -846,6 +787,7 @@ export default function AdminPage() {
                       )}
                     </button>
                   )}
+
                   <input
                     ref={coverInputRef}
                     type="file"
@@ -854,11 +796,12 @@ export default function AdminPage() {
                     onChange={handleCoverUpload}
                     data-ocid="admin.cover.upload_button"
                   />
-                  {!coverPreviewUrl && (
+
+                  {!coverImage && (
                     <Button
                       variant="outline"
                       onClick={() => coverInputRef.current?.click()}
-                      disabled={uploadingCover}
+                      disabled={isUploadingCover}
                       data-ocid="admin.cover.select.secondary_button"
                     >
                       <Upload className="mr-2 h-4 w-4" />
@@ -887,7 +830,6 @@ export default function AdminPage() {
 
                   {/* Formatting Toolbar */}
                   <div className="border border-border rounded-t-lg bg-muted/40 px-2 py-1.5 flex items-center gap-1 flex-wrap">
-                    {/* Normal */}
                     <Button
                       type="button"
                       variant="ghost"
@@ -903,27 +845,25 @@ export default function AdminPage() {
 
                     <div className="w-px h-5 bg-border mx-0.5" />
 
-                    {/* Bold */}
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 font-bold text-sm hover:bg-muted hover:text-foreground"
                       onClick={() => applyFormat("bold")}
-                      title="Bold (wraps with **text**)"
+                      title="Bold"
                       data-ocid="admin.content.format-bold.button"
                     >
                       <Bold className="w-3.5 h-3.5" />
                     </Button>
 
-                    {/* Italic */}
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 italic text-sm hover:bg-muted hover:text-foreground"
                       onClick={() => applyFormat("italic")}
-                      title="Italic (wraps with *text*)"
+                      title="Italic"
                       data-ocid="admin.content.format-italic.button"
                     >
                       <Italic className="w-3.5 h-3.5" />
@@ -931,7 +871,6 @@ export default function AdminPage() {
 
                     <div className="w-px h-5 bg-border mx-0.5" />
 
-                    {/* Color Picker */}
                     <div className="relative">
                       <Button
                         type="button"
@@ -979,7 +918,6 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  {/* Textarea connected to toolbar */}
                   <textarea
                     ref={textareaRef}
                     placeholder="Write your Ayurvedic post content here... Use ## for headings, - for bullet points."
@@ -1086,15 +1024,15 @@ export default function AdminPage() {
                     <Button
                       variant="outline"
                       onClick={() => contentInputRef.current?.click()}
-                      disabled={uploadingContent}
+                      disabled={isUploadingContent}
                       data-ocid="admin.content-image.upload_button"
                     >
-                      {uploadingContent ? (
+                      {isUploadingContent ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <Upload className="mr-2 h-4 w-4" />
                       )}
-                      {uploadingContent && contentUploadProgress > 0
+                      {isUploadingContent && contentUploadProgress > 0
                         ? `${contentUploadProgress}%`
                         : "Upload Image(s)"}
                     </Button>

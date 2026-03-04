@@ -16,16 +16,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import type { ExternalBlob } from "../backend.d";
 import {
   useAddComment,
   useGetPost,
   useListComments,
 } from "../hooks/useQueries";
-import {
-  extractContentImageUrls,
-  extractCoverImageUrl,
-  getVisibleTags,
-} from "../utils/imageUtils";
+import { getVisibleTags } from "../utils/imageUtils";
 
 type ImageSize = "small" | "medium" | "large" | "full";
 
@@ -36,14 +33,11 @@ const IMAGE_SIZE_CLASSES: Record<ImageSize, string> = {
   full: "w-full rounded-xl",
 };
 
-function parseContent(
-  content: string,
-  contentImages: { index: number; size: string; url: string }[],
-) {
-  // Build a lookup map: index -> { url, size }
-  const imageMap: Record<number, { url: string; size: string }> = {};
-  for (const img of contentImages) {
-    imageMap[img.index] = { url: img.url, size: img.size };
+function parseContent(content: string, contentImageBlobs: ExternalBlob[]) {
+  // Build a lookup map: index -> url
+  const imageMap: Record<number, string> = {};
+  for (let i = 0; i < contentImageBlobs.length; i++) {
+    imageMap[i] = contentImageBlobs[i].getDirectURL();
   }
 
   // Split content into segments: text or image markdown tokens
@@ -70,30 +64,26 @@ function parseContent(
 
     const colonIdx = src.indexOf(":");
     if (colonIdx !== -1) {
-      // Could be "index:size" or "sha256:..." or "https://..."
+      // Could be "index:size" or "https://..."
       const beforeColon = src.slice(0, colonIdx);
       const afterColon = src.slice(colonIdx + 1);
       const idx = Number.parseInt(beforeColon, 10);
       if (!Number.isNaN(idx) && imageMap[idx]) {
         // "index:size" format from admin
         const overrideSize = afterColon as ImageSize;
-        imgUrl = imageMap[idx].url;
+        imgUrl = imageMap[idx];
         sizeClass =
-          IMAGE_SIZE_CLASSES[overrideSize] ||
-          IMAGE_SIZE_CLASSES[imageMap[idx].size as ImageSize] ||
-          IMAGE_SIZE_CLASSES.medium;
+          IMAGE_SIZE_CLASSES[overrideSize] || IMAGE_SIZE_CLASSES.medium;
       } else {
-        // It's a URL (e.g., https://... or sha256:...)
+        // It's a URL (e.g., https://...)
         imgUrl = src;
       }
     } else {
       // Plain index with no size
       const idx = Number.parseInt(src, 10);
       if (!Number.isNaN(idx) && imageMap[idx]) {
-        imgUrl = imageMap[idx].url;
-        sizeClass =
-          IMAGE_SIZE_CLASSES[imageMap[idx].size as ImageSize] ||
-          IMAGE_SIZE_CLASSES.medium;
+        imgUrl = imageMap[idx];
+        sizeClass = IMAGE_SIZE_CLASSES.medium;
       } else {
         imgUrl = src; // treat as URL
       }
@@ -315,9 +305,8 @@ export default function BlogPostPage() {
     );
   }
 
-  // Extract cover and content images from tags (backend doesn't return them)
-  const coverUrl = extractCoverImageUrl(post.tags || []);
-  const contentImages = extractContentImageUrls(post.tags || []);
+  const coverUrl = post.coverImage?.getDirectURL() ?? null;
+  const contentImageBlobs = post.contentImages ?? [];
   const visibleTags = getVisibleTags(post.tags || []);
 
   return (
@@ -395,7 +384,7 @@ export default function BlogPostPage() {
 
         {/* Content */}
         <article className="prose-ayur mb-12" data-ocid="blog-post.editor">
-          {parseContent(post.content, contentImages)}
+          {parseContent(post.content, contentImageBlobs)}
         </article>
 
         {/* Divider */}

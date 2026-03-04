@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ExternalBlob } from "../backend";
 import type { BlogPost, Comment } from "../backend.d";
 import { useActor } from "./useActor";
 
@@ -12,6 +13,12 @@ export function useListPosts() {
       return actor.listPosts();
     },
     enabled: !!actor,
+    // Always treat data as stale so posts reload on every page visit.
+    // This ensures public users sharing the link always see fresh content.
+    staleTime: 0,
+    retry: 3,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -24,6 +31,10 @@ export function useListPostsByCategory(category: string) {
       return actor.listPostsByCategory(category);
     },
     enabled: !!actor && !!category,
+    staleTime: 0,
+    retry: 3,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -36,6 +47,10 @@ export function useGetPost(id: string) {
       return actor.getPost(id);
     },
     enabled: !!actor && !!id,
+    staleTime: 0,
+    retry: 3,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -49,6 +64,10 @@ export function useListComments(postId: string) {
       return actor.listComments(postId);
     },
     enabled: !!actor && !!postId,
+    staleTime: 0,
+    retry: 3,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -87,8 +106,8 @@ export function useCreatePost() {
       excerpt: string;
       tags: string[];
       isPublished: boolean;
-      coverImageId: string | null;
-      contentImageIds: string[];
+      coverImage: ExternalBlob | null;
+      contentImages: ExternalBlob[];
     }) => {
       if (!actor) throw new Error("No actor available");
       return actor.createPost(
@@ -99,8 +118,8 @@ export function useCreatePost() {
         params.excerpt,
         params.tags,
         params.isPublished,
-        params.coverImageId,
-        params.contentImageIds,
+        params.coverImage,
+        params.contentImages,
       );
     },
     onSuccess: () => {
@@ -122,8 +141,8 @@ export function useUpdatePost() {
       excerpt: string;
       tags: string[];
       isPublished: boolean;
-      coverImageId: string | null;
-      contentImageIds: string[];
+      coverImage: ExternalBlob | null;
+      contentImages: ExternalBlob[];
     }) => {
       if (!actor) throw new Error("No actor available");
       return actor.updatePost(
@@ -135,8 +154,8 @@ export function useUpdatePost() {
         params.excerpt,
         params.tags,
         params.isPublished,
-        params.coverImageId,
-        params.contentImageIds,
+        params.coverImage,
+        params.contentImages,
       );
     },
     onSuccess: (data) => {

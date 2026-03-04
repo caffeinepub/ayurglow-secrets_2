@@ -5,12 +5,14 @@ import Time "mo:core/Time";
 import Int "mo:core/Int";
 import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
-import Iter "mo:core/Iter";
 import Map "mo:core/Map";
+import Iter "mo:core/Iter";
+import Migration "migration";
 
 import MixinStorage "blob-storage/Mixin";
 import Storage "blob-storage/Storage";
 
+(with migration = Migration.run)
 actor {
   include MixinStorage();
 
@@ -90,15 +92,11 @@ actor {
 
   blogPosts.add(samplePost.id, samplePost);
 
-  public shared ({ caller }) func createPost(title : Text, category : Text, subcategory : Text, content : Text, excerpt : Text, tags : [Text], isPublished : Bool, coverImageId : ?Text, contentImageIds : [Text]) : async BlogPost {
+  public shared ({ caller }) func createPost(title : Text, category : Text, subcategory : Text, content : Text, excerpt : Text, tags : [Text], isPublished : Bool, coverImage : ?Storage.ExternalBlob, contentImages : [Storage.ExternalBlob]) : async BlogPost {
     let postId = nextPostId.toText();
     nextPostId += 1;
 
     let categoryEnum = textToCategory(category);
-
-    let coverImage = null;
-
-    let contentImages = [];
 
     let publishedAt = if (isPublished) {
       ?Time.now();
@@ -124,15 +122,11 @@ actor {
     post;
   };
 
-  public shared ({ caller }) func updatePost(id : Text, title : Text, category : Text, subcategory : Text, content : Text, excerpt : Text, tags : [Text], isPublished : Bool, coverImageId : ?Text, contentImageIds : [Text]) : async BlogPost {
+  public shared ({ caller }) func updatePost(id : Text, title : Text, category : Text, subcategory : Text, content : Text, excerpt : Text, tags : [Text], isPublished : Bool, coverImage : ?Storage.ExternalBlob, contentImages : [Storage.ExternalBlob]) : async BlogPost {
     switch (blogPosts.get(id)) {
       case (null) { Runtime.trap("Post not found") };
       case (?post) {
         let categoryEnum = textToCategory(category);
-
-        let coverImage = null;
-
-        let contentImages = [];
 
         let publishedAt = if (isPublished and not post.isPublished) {
           ?Time.now();
