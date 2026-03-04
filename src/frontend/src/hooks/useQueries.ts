@@ -4,51 +4,51 @@ import { useActor } from "./useActor";
 
 // ==================== POSTS ====================
 export function useListPosts() {
-  const { actor, isFetching } = useActor();
+  const { actor } = useActor();
   return useQuery<BlogPost[]>({
     queryKey: ["posts"],
     queryFn: async () => {
       if (!actor) return [];
       return actor.listPosts();
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor,
   });
 }
 
 export function useListPostsByCategory(category: string) {
-  const { actor, isFetching } = useActor();
+  const { actor } = useActor();
   return useQuery<BlogPost[]>({
     queryKey: ["posts", "category", category],
     queryFn: async () => {
       if (!actor) return [];
       return actor.listPostsByCategory(category);
     },
-    enabled: !!actor && !isFetching && !!category,
+    enabled: !!actor && !!category,
   });
 }
 
 export function useGetPost(id: string) {
-  const { actor, isFetching } = useActor();
+  const { actor } = useActor();
   return useQuery<BlogPost>({
     queryKey: ["post", id],
     queryFn: async () => {
       if (!actor) throw new Error("No actor available");
       return actor.getPost(id);
     },
-    enabled: !!actor && !isFetching && !!id,
+    enabled: !!actor && !!id,
   });
 }
 
 // ==================== COMMENTS ====================
 export function useListComments(postId: string) {
-  const { actor, isFetching } = useActor();
+  const { actor } = useActor();
   return useQuery<Comment[]>({
     queryKey: ["comments", postId],
     queryFn: async () => {
       if (!actor) return [];
       return actor.listComments(postId);
     },
-    enabled: !!actor && !isFetching && !!postId,
+    enabled: !!actor && !!postId,
   });
 }
 

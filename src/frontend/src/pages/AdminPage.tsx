@@ -32,14 +32,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Bold,
   Calendar,
   CheckCircle,
   Copy,
   Edit,
   Image,
+  Italic,
   Loader2,
   Plus,
   Trash2,
+  Type,
   Upload,
   X,
 } from "lucide-react";
@@ -54,8 +57,16 @@ import {
   useUpdatePost,
 } from "../hooks/useQueries";
 import { StorageClient } from "../utils/StorageClient";
-
-// Config is accessed via window at runtime
+import {
+  addContentImageToTags,
+  addCoverImageToTags,
+  buildStorageUrl,
+  extractContentImageUrls,
+  extractCoverImageUrl,
+  getVisibleTags,
+  removeContentImageFromTags,
+  updateContentImageSizeInTags,
+} from "../utils/imageUtils";
 
 type ImageSize = "small" | "medium" | "large" | "full";
 
@@ -72,7 +83,10 @@ interface PostForm {
   category: string;
   subcategory: string;
   excerpt: string;
-  tags: string;
+  /** Internal tags array — includes __cover__ and __img__ special tags */
+  tags: string[];
+  /** Comma-separated visible tags only (what user types) */
+  visibleTagsInput: string;
   content: string;
   isPublished: boolean;
   publishImmediately: boolean;
@@ -84,7 +98,8 @@ const emptyForm: PostForm = {
   category: "health",
   subcategory: "",
   excerpt: "",
-  tags: "",
+  tags: [],
+  visibleTagsInput: "",
   content: "",
   isPublished: false,
   publishImmediately: true,
@@ -111,21 +126,91 @@ export default function AdminPage() {
   const createPost = useCreatePost();
   const updatePost = useUpdatePost();
   const deletePost = useDeletePost();
-  const { actor: _actor } = useActor(); // actor available for future use
+  const { actor: _actor } = useActor();
 
   const [activeTab, setActiveTab] = useState("posts");
   const [editingPost, setEditingPost] = useState<BlogPost | null>(null);
   const [form, setForm] = useState<PostForm>(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Image state
+  // Image state - local UI representations
   const [coverImage, setCoverImage] = useState<UploadedImage | null>(null);
   const [contentImages, setContentImages] = useState<UploadedImage[]>([]);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingContent, setUploadingContent] = useState(false);
+  const [coverUploadProgress, setCoverUploadProgress] = useState(0);
+  const [contentUploadProgress, setContentUploadProgress] = useState(0);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const contentInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Rich text toolbar state
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [activeColor, setActiveColor] = useState("#000000");
+
+  const PRESET_COLORS = [
+    { hex: "#000000", label: "Black" },
+    { hex: "#2d6a4f", label: "Forest Green" },
+    { hex: "#1d4e89", label: "Ocean Blue" },
+    { hex: "#c0392b", label: "Crimson" },
+    { hex: "#e67e22", label: "Amber" },
+    { hex: "#6c3483", label: "Purple" },
+    { hex: "#0097a7", label: "Teal" },
+  ];
+
+  const applyFormat = (
+    type: "bold" | "italic" | "color" | "normal",
+    color?: string,
+  ) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+
+    if (start === end) {
+      toast.info("Select some text first");
+      return;
+    }
+
+    const content = form.content;
+    const before = content.slice(0, start);
+    const selected = content.slice(start, end);
+    const after = content.slice(end);
+
+    let formatted = selected;
+    let newStart = start;
+    let newEnd = end;
+
+    if (type === "normal") {
+      // Strip **bold**, *italic*, <color:...>...</color>
+      formatted = selected
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, "$1")
+        .replace(/<color:[^>]+>([\s\S]*?)<\/color>/g, "$1");
+      newEnd = start + formatted.length;
+    } else if (type === "bold") {
+      formatted = `**${selected}**`;
+      newEnd = start + formatted.length;
+    } else if (type === "italic") {
+      formatted = `*${selected}*`;
+      newEnd = start + formatted.length;
+    } else if (type === "color" && color) {
+      formatted = `<color:${color}>${selected}</color>`;
+      newEnd = start + formatted.length;
+    }
+
+    const newContent = before + formatted + after;
+    setForm((f) => ({ ...f, content: newContent }));
+
+    setTimeout(() => {
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(newStart, newEnd);
+      }
+    }, 0);
+  };
 
   const getStorageClient = () => {
     const config = (window as any).__CAFFEINE_CONFIG__;
@@ -146,20 +231,40 @@ export default function AdminPage() {
     if (!file) return;
 
     setUploadingCover(true);
+    setCoverUploadProgress(0);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const storage = getStorageClient();
-      const { hash } = await storage.putFile(bytes);
+      const { hash } = await storage.putFile(bytes, (pct) =>
+        setCoverUploadProgress(pct),
+      );
       const previewUrl = URL.createObjectURL(file);
+
       setCoverImage({ hash, previewUrl, size: "full", name: file.name });
+
+      // Embed hash into tags
+      setForm((f) => ({
+        ...f,
+        tags: addCoverImageToTags(f.tags, hash),
+      }));
+
       toast.success("Cover image uploaded!");
     } catch (err) {
       toast.error("Failed to upload cover image.");
       console.error(err);
     } finally {
       setUploadingCover(false);
+      setCoverUploadProgress(0);
       if (coverInputRef.current) coverInputRef.current.value = "";
     }
+  };
+
+  const handleRemoveCover = () => {
+    setCoverImage(null);
+    setForm((f) => ({
+      ...f,
+      tags: f.tags.filter((t) => !t.startsWith("__cover__:")),
+    }));
   };
 
   const handleContentImageUpload = async (
@@ -169,30 +274,47 @@ export default function AdminPage() {
     if (files.length === 0) return;
 
     setUploadingContent(true);
+    setContentUploadProgress(0);
     try {
       const storage = getStorageClient();
-      const newImages: UploadedImage[] = [];
+      let currentCount = contentImages.length;
 
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const { hash } = await storage.putFile(bytes);
+        const { hash } = await storage.putFile(bytes, (pct) =>
+          setContentUploadProgress(pct),
+        );
         const previewUrl = URL.createObjectURL(file);
-        newImages.push({ hash, previewUrl, size: "medium", name: file.name });
+        const newImg: UploadedImage = {
+          hash,
+          previewUrl,
+          size: "medium",
+          name: file.name,
+        };
+
+        const imgIndex = currentCount;
+        currentCount++;
+
+        setContentImages((prev) => [...prev, newImg]);
+        setForm((f) => ({
+          ...f,
+          tags: addContentImageToTags(f.tags, imgIndex, hash, "medium"),
+        }));
       }
 
-      setContentImages((prev) => [...prev, ...newImages]);
-      toast.success(`${newImages.length} image(s) uploaded!`);
+      toast.success(`${files.length} image(s) uploaded!`);
     } catch (err) {
       toast.error("Failed to upload content image(s).");
       console.error(err);
     } finally {
       setUploadingContent(false);
+      setContentUploadProgress(0);
       if (contentInputRef.current) contentInputRef.current.value = "";
     }
   };
 
   const copyImageMarkdown = (img: UploadedImage, index: number) => {
-    const markdown = `![${img.name}](${index})`;
+    const markdown = `![${img.name}](${index}:${img.size})`;
     navigator.clipboard.writeText(markdown).then(() => {
       setContentImages((prev) =>
         prev.map((im, i) => (i === index ? { ...im, copied: true } : im)),
@@ -208,12 +330,20 @@ export default function AdminPage() {
 
   const removeContentImage = (index: number) => {
     setContentImages((prev) => prev.filter((_, i) => i !== index));
+    setForm((f) => ({
+      ...f,
+      tags: removeContentImageFromTags(f.tags, index),
+    }));
   };
 
   const updateImageSize = (index: number, size: ImageSize) => {
     setContentImages((prev) =>
       prev.map((img, i) => (i === index ? { ...img, size } : img)),
     );
+    setForm((f) => ({
+      ...f,
+      tags: updateContentImageSizeInTags(f.tags, index, size),
+    }));
   };
 
   const resetForm = () => {
@@ -225,12 +355,18 @@ export default function AdminPage() {
 
   const handleEditPost = (post: BlogPost) => {
     setEditingPost(post);
+
+    const visibleTags = getVisibleTags(post.tags || []);
+    const existingCoverUrl = extractCoverImageUrl(post.tags || []);
+    const existingContentImgs = extractContentImageUrls(post.tags || []);
+
     setForm({
       title: post.title,
       category: post.category,
       subcategory: post.subcategory,
       excerpt: post.excerpt,
-      tags: post.tags?.join(", ") || "",
+      tags: post.tags || [],
+      visibleTagsInput: visibleTags.join(", "),
       content: post.content,
       isPublished: post.isPublished,
       publishImmediately: post.isPublished,
@@ -240,15 +376,41 @@ export default function AdminPage() {
             .slice(0, 10)
         : new Date().toISOString().slice(0, 10),
     });
-    if (post.coverImage) {
-      const url = post.coverImage.getDirectURL?.();
+
+    // Restore cover image UI
+    if (existingCoverUrl) {
+      // Extract hash directly from the cover tag
+      const coverTag = (post.tags || []).find((t) =>
+        t.startsWith("__cover__:"),
+      );
+      const coverHash = coverTag ? coverTag.slice("__cover__:".length) : "";
       setCoverImage({
-        hash: "",
-        previewUrl: url || "",
+        hash: coverHash,
+        previewUrl: existingCoverUrl,
         size: "full",
         name: "Existing cover",
       });
+    } else {
+      setCoverImage(null);
     }
+
+    // Restore content images UI
+    const restoredContentImages: UploadedImage[] = existingContentImgs.map(
+      (img) => {
+        const hash =
+          (post.tags || [])
+            .find((t) => t.startsWith(`__img__:${img.index}:`))
+            ?.split(":")?.[3] ?? "";
+        return {
+          hash,
+          previewUrl: img.url,
+          size: img.size as ImageSize,
+          name: `Image ${img.index + 1}`,
+        };
+      },
+    );
+    setContentImages(restoredContentImages);
+
     setActiveTab("create");
   };
 
@@ -262,17 +424,18 @@ export default function AdminPage() {
       return;
     }
 
-    const tags = form.tags
+    // Merge visible tags into the full tags array (preserve __cover__ and __img__ tags)
+    const visibleTags = form.visibleTagsInput
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const isPublished = publish || (form.publishImmediately && publish);
-    const coverImageId =
-      coverImage?.hash && coverImage.hash !== "" ? coverImage.hash : null;
-    const contentImageIds = contentImages
-      .map((img) => img.hash)
-      .filter(Boolean);
+    const specialTags = form.tags.filter(
+      (t) => t.startsWith("__cover__:") || t.startsWith("__img__:"),
+    );
+    const finalTags = [...specialTags, ...visibleTags];
+
+    const isPublished = publish;
 
     try {
       if (editingPost) {
@@ -283,10 +446,10 @@ export default function AdminPage() {
           subcategory: form.subcategory,
           content: form.content,
           excerpt: form.excerpt,
-          tags,
+          tags: finalTags,
           isPublished,
-          coverImageId,
-          contentImageIds,
+          coverImageId: null,
+          contentImageIds: [],
         });
         toast.success("Post updated successfully!");
       } else {
@@ -296,10 +459,10 @@ export default function AdminPage() {
           subcategory: form.subcategory,
           content: form.content,
           excerpt: form.excerpt,
-          tags,
+          tags: finalTags,
           isPublished,
-          coverImageId,
-          contentImageIds,
+          coverImageId: null,
+          contentImageIds: [],
         });
         toast.success(isPublished ? "Post published!" : "Draft saved!");
       }
@@ -324,6 +487,11 @@ export default function AdminPage() {
   };
 
   const isPending = createPost.isPending || updatePost.isPending;
+
+  // Derive cover preview URL — prefer local blob URL for new uploads, fall back to storage URL
+  const coverPreviewUrl =
+    coverImage?.previewUrl ||
+    (coverImage?.hash ? buildStorageUrl(coverImage.hash) : null);
 
   return (
     <main className="min-h-screen" data-ocid="admin.page">
@@ -415,6 +583,7 @@ export default function AdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
+                        <TableHead>Cover</TableHead>
                         <TableHead>Title</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Status</TableHead>
@@ -423,71 +592,89 @@ export default function AdminPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {posts.map((post, i) => (
-                        <TableRow
-                          key={post.id}
-                          data-ocid={`admin.post.row.${i + 1}`}
-                        >
-                          <TableCell className="font-medium max-w-xs">
-                            <span className="line-clamp-1">{post.title}</span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="secondary"
-                              className="capitalize text-xs bg-[oklch(0.92_0.04_165)] text-[oklch(0.25_0.08_155)]"
-                            >
-                              {post.category}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                post.isPublished ? "default" : "secondary"
-                              }
-                              className={`text-xs ${
-                                post.isPublished
-                                  ? "bg-[oklch(0.42_0.14_155)] text-white"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {post.isPublished ? "Published" : "Draft"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-xs">
-                            {post.publishedAt
-                              ? new Date(
-                                  Number(post.publishedAt) / 1_000_000,
-                                ).toLocaleDateString("en-IN", {
-                                  day: "numeric",
-                                  month: "short",
-                                  year: "numeric",
-                                })
-                              : "—"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditPost(post)}
-                                data-ocid={`admin.post.edit_button.${i + 1}`}
-                                className="text-brand-blue hover:text-brand-blue hover:bg-blue-50"
+                      {posts.map((post, i) => {
+                        const coverUrl = extractCoverImageUrl(post.tags || []);
+                        return (
+                          <TableRow
+                            key={post.id}
+                            data-ocid={`admin.post.row.${i + 1}`}
+                          >
+                            <TableCell>
+                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-gradient-to-br from-[oklch(0.38_0.12_225)] to-[oklch(0.42_0.14_155)] flex-shrink-0">
+                                {coverUrl ? (
+                                  <img
+                                    src={coverUrl}
+                                    alt={post.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-white/50 text-lg">
+                                    🌿
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium max-w-xs">
+                              <span className="line-clamp-1">{post.title}</span>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="secondary"
+                                className="capitalize text-xs bg-[oklch(0.92_0.04_165)] text-[oklch(0.25_0.08_155)]"
                               >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteId(post.id)}
-                                data-ocid={`admin.post.delete_button.${i + 1}`}
-                                className="text-destructive hover:text-destructive hover:bg-red-50"
+                                {post.category}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  post.isPublished ? "default" : "secondary"
+                                }
+                                className={`text-xs ${
+                                  post.isPublished
+                                    ? "bg-[oklch(0.42_0.14_155)] text-white"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
                               >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                {post.isPublished ? "Published" : "Draft"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-xs">
+                              {post.publishedAt
+                                ? new Date(
+                                    Number(post.publishedAt) / 1_000_000,
+                                  ).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditPost(post)}
+                                  data-ocid={`admin.post.edit_button.${i + 1}`}
+                                  className="text-brand-blue hover:text-brand-blue hover:bg-blue-50"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setDeleteId(post.id)}
+                                  data-ocid={`admin.post.delete_button.${i + 1}`}
+                                  className="text-destructive hover:text-destructive hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -580,9 +767,12 @@ export default function AdminPage() {
                     <Input
                       id="tags"
                       placeholder="ayurveda, skin care, turmeric..."
-                      value={form.tags}
+                      value={form.visibleTagsInput}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, tags: e.target.value }))
+                        setForm((f) => ({
+                          ...f,
+                          visibleTagsInput: e.target.value,
+                        }))
                       }
                       className="mt-1"
                       data-ocid="admin.post.tags.input"
@@ -596,16 +786,16 @@ export default function AdminPage() {
                     Cover Image
                   </h2>
 
-                  {coverImage ? (
+                  {coverPreviewUrl ? (
                     <div className="relative rounded-xl overflow-hidden border border-border">
                       <img
-                        src={coverImage.previewUrl}
+                        src={coverPreviewUrl}
                         alt="Cover preview"
                         className="w-full h-52 object-cover"
                       />
                       <button
                         type="button"
-                        onClick={() => setCoverImage(null)}
+                        onClick={handleRemoveCover}
                         className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
                         data-ocid="admin.cover.remove.button"
                       >
@@ -620,17 +810,38 @@ export default function AdminPage() {
                       data-ocid="admin.cover.dropzone"
                     >
                       {uploadingCover ? (
-                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
-                          <p className="text-sm">Uploading cover image...</p>
+                          <p className="text-sm font-medium">
+                            Uploading cover image...
+                          </p>
+                          {coverUploadProgress > 0 && (
+                            <div className="w-48">
+                              <div className="flex justify-between text-xs mb-1">
+                                <span>Progress</span>
+                                <span>{coverUploadProgress}%</span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                  className="h-2 rounded-full transition-all duration-300"
+                                  style={{
+                                    width: `${coverUploadProgress}%`,
+                                    background: "oklch(0.38 0.12 225)",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <Image className="w-10 h-10 opacity-40" />
                           <p className="text-sm font-medium">
-                            Click to upload cover image
+                            Click to upload cover image (any size)
                           </p>
-                          <p className="text-xs">JPG, PNG, WebP supported</p>
+                          <p className="text-xs">
+                            JPG, PNG, WebP · Any file size supported
+                          </p>
                         </div>
                       )}
                     </button>
@@ -643,7 +854,7 @@ export default function AdminPage() {
                     onChange={handleCoverUpload}
                     data-ocid="admin.cover.upload_button"
                   />
-                  {!coverImage && (
+                  {!coverPreviewUrl && (
                     <Button
                       variant="outline"
                       onClick={() => coverInputRef.current?.click()}
@@ -666,17 +877,118 @@ export default function AdminPage() {
                     <code className="bg-muted px-1 rounded">## Heading</code>{" "}
                     for headings,{" "}
                     <code className="bg-muted px-1 rounded">- item</code> for
-                    lists. Insert in-content images using the image markdown
-                    code from below.
+                    lists. Insert images by copying the markdown code below and
+                    pasting it in your content, e.g.{" "}
+                    <code className="bg-muted px-1 rounded">
+                      ![caption](0:medium)
+                    </code>
+                    . Select text and use the toolbar to apply formatting.
                   </p>
-                  <Textarea
+
+                  {/* Formatting Toolbar */}
+                  <div className="border border-border rounded-t-lg bg-muted/40 px-2 py-1.5 flex items-center gap-1 flex-wrap">
+                    {/* Normal */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => applyFormat("normal")}
+                      title="Remove formatting"
+                      data-ocid="admin.content.format-normal.button"
+                    >
+                      <Type className="w-3.5 h-3.5 mr-1" />
+                      Normal
+                    </Button>
+
+                    <div className="w-px h-5 bg-border mx-0.5" />
+
+                    {/* Bold */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 font-bold text-sm hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("bold")}
+                      title="Bold (wraps with **text**)"
+                      data-ocid="admin.content.format-bold.button"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </Button>
+
+                    {/* Italic */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 italic text-sm hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("italic")}
+                      title="Italic (wraps with *text*)"
+                      data-ocid="admin.content.format-italic.button"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </Button>
+
+                    <div className="w-px h-5 bg-border mx-0.5" />
+
+                    {/* Color Picker */}
+                    <div className="relative">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs flex items-center gap-1.5 hover:bg-muted hover:text-foreground"
+                        onClick={() => setShowColorPicker((v) => !v)}
+                        title="Text color"
+                        data-ocid="admin.content.format-color.button"
+                      >
+                        <span
+                          className="w-4 h-4 rounded-full border-2 border-white shadow-sm inline-block"
+                          style={{ background: activeColor }}
+                        />
+                        <span className="text-muted-foreground">Color</span>
+                      </Button>
+
+                      {showColorPicker && (
+                        <div className="absolute top-full left-0 mt-1 z-10 bg-popover border border-border rounded-lg p-2 shadow-lg">
+                          <p className="text-xs text-muted-foreground mb-2 px-1">
+                            Pick a color
+                          </p>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {PRESET_COLORS.map((c) => (
+                              <button
+                                key={c.hex}
+                                type="button"
+                                title={c.label}
+                                className="w-6 h-6 rounded-full border-2 border-white shadow-sm cursor-pointer hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-ring"
+                                style={{ background: c.hex }}
+                                onClick={() => {
+                                  setActiveColor(c.hex);
+                                  setShowColorPicker(false);
+                                  applyFormat("color", c.hex);
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="ml-auto text-xs text-muted-foreground hidden sm:block">
+                      Select text → apply format
+                    </div>
+                  </div>
+
+                  {/* Textarea connected to toolbar */}
+                  <textarea
+                    ref={textareaRef}
                     placeholder="Write your Ayurvedic post content here... Use ## for headings, - for bullet points."
                     value={form.content}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, content: e.target.value }))
                     }
                     rows={16}
-                    className="font-mono text-sm"
+                    className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 font-mono text-sm rounded-t-none border-t-0 -mt-4 flex min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
                     data-ocid="admin.post.content.editor"
                   />
                 </div>
@@ -782,7 +1094,9 @@ export default function AdminPage() {
                       ) : (
                         <Upload className="mr-2 h-4 w-4" />
                       )}
-                      Upload Image(s)
+                      {uploadingContent && contentUploadProgress > 0
+                        ? `${contentUploadProgress}%`
+                        : "Upload Image(s)"}
                     </Button>
                     <input
                       ref={contentInputRef}
@@ -852,7 +1166,11 @@ export default function AdminPage() {
                     Save as Draft
                   </Button>
                   <Button
-                    onClick={() => handleSubmit(true)}
+                    onClick={() =>
+                      handleSubmit(
+                        form.publishImmediately ? true : form.isPublished,
+                      )
+                    }
                     disabled={isPending}
                     className="bg-[oklch(0.42_0.14_155)] hover:bg-[oklch(0.35_0.14_155)] text-white"
                     data-ocid="admin.post.publish.primary_button"

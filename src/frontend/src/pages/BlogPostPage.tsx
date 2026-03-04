@@ -16,56 +16,99 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { ExternalBlob } from "../backend.d";
 import {
   useAddComment,
   useGetPost,
   useListComments,
 } from "../hooks/useQueries";
+import {
+  extractContentImageUrls,
+  extractCoverImageUrl,
+  getVisibleTags,
+} from "../utils/imageUtils";
 
 type ImageSize = "small" | "medium" | "large" | "full";
 
-// IMAGE_SIZE_CLASSES maps size names to tailwind classes for rendered images
-const _IMAGE_SIZE_CLASSES: Record<ImageSize, string> = {
-  small: "max-w-xs mx-auto",
-  medium: "max-w-md mx-auto",
-  large: "max-w-xl mx-auto",
-  full: "w-full",
+const IMAGE_SIZE_CLASSES: Record<ImageSize, string> = {
+  small: "max-w-xs mx-auto block rounded-xl",
+  medium: "max-w-md mx-auto block rounded-xl",
+  large: "max-w-xl mx-auto block rounded-xl",
+  full: "w-full rounded-xl",
 };
 
-function parseContent(content: string, contentImages: ExternalBlob[]) {
-  // Parse ![alt](index) or ![alt](url) patterns and render images
-  const parts = content.split(/(\!\[([^\]]*)\]\(([^)]+)\))/g);
+function parseContent(
+  content: string,
+  contentImages: { index: number; size: string; url: string }[],
+) {
+  // Build a lookup map: index -> { url, size }
+  const imageMap: Record<number, { url: string; size: string }> = {};
+  for (const img of contentImages) {
+    imageMap[img.index] = { url: img.url, size: img.size };
+  }
+
+  // Split content into segments: text or image markdown tokens
+  // Pattern: ![alt](index:size) or ![alt](index) or ![alt](url)
+  const imagePattern = /!\[([^\]]*)\]\(([^)]+)\)/g;
   const elements: React.ReactNode[] = [];
   let key = 0;
+  let lastIndex = 0;
 
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (!part) continue;
-
-    // Check if this is an image tag match
-    if (part.startsWith("![")) {
-      i++; // skip alt group
-      i++; // skip src group
-      continue;
+  let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard pattern for exec loop
+  while ((match = imagePattern.exec(content)) !== null) {
+    // Render text before this image
+    const textBefore = content.slice(lastIndex, match.index);
+    if (textBefore) {
+      elements.push(...renderText(textBefore, key));
+      key += 100; // leave space for sub-keys
     }
 
-    // Check for image pattern
-    const imgMatch = part.match(/\!\[([^\]]*)\]\(([^)]+)\)/);
-    if (imgMatch) {
-      const [, alt, src] = imgMatch;
-      let imgUrl = src;
-      // If src is a number, it's an index into contentImages
-      const idx = Number.parseInt(src, 10);
-      if (!Number.isNaN(idx) && contentImages[idx]) {
-        imgUrl = contentImages[idx].getDirectURL?.() || src;
+    const [, alt, src] = match;
+    // src can be "index:size", "index", or a URL
+    let imgUrl: string | null = null;
+    let sizeClass = IMAGE_SIZE_CLASSES.medium;
+
+    const colonIdx = src.indexOf(":");
+    if (colonIdx !== -1) {
+      // Could be "index:size" or "sha256:..." or "https://..."
+      const beforeColon = src.slice(0, colonIdx);
+      const afterColon = src.slice(colonIdx + 1);
+      const idx = Number.parseInt(beforeColon, 10);
+      if (!Number.isNaN(idx) && imageMap[idx]) {
+        // "index:size" format from admin
+        const overrideSize = afterColon as ImageSize;
+        imgUrl = imageMap[idx].url;
+        sizeClass =
+          IMAGE_SIZE_CLASSES[overrideSize] ||
+          IMAGE_SIZE_CLASSES[imageMap[idx].size as ImageSize] ||
+          IMAGE_SIZE_CLASSES.medium;
+      } else {
+        // It's a URL (e.g., https://... or sha256:...)
+        imgUrl = src;
       }
+    } else {
+      // Plain index with no size
+      const idx = Number.parseInt(src, 10);
+      if (!Number.isNaN(idx) && imageMap[idx]) {
+        imgUrl = imageMap[idx].url;
+        sizeClass =
+          IMAGE_SIZE_CLASSES[imageMap[idx].size as ImageSize] ||
+          IMAGE_SIZE_CLASSES.medium;
+      } else {
+        imgUrl = src; // treat as URL
+      }
+    }
+
+    if (imgUrl) {
       elements.push(
-        <figure key={key++} className="my-6">
+        <figure key={`img-${key++}`} className="my-6">
           <img
             src={imgUrl}
             alt={alt}
-            className="w-full rounded-xl shadow-sm object-cover"
+            className={`${sizeClass} shadow-sm object-cover`}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
           />
           {alt && (
             <figcaption className="text-center text-xs text-muted-foreground mt-2 italic">
@@ -74,67 +117,127 @@ function parseContent(content: string, contentImages: ExternalBlob[]) {
           )}
         </figure>,
       );
-    } else {
-      // Split by double newline for paragraphs
-      const paragraphs = part.split(/\n\n+/);
-      for (const para of paragraphs) {
-        if (!para.trim()) continue;
+    }
 
-        // Handle headers
-        if (para.startsWith("## ")) {
-          elements.push(
-            <h2
-              key={key++}
-              className="font-display text-2xl font-bold text-[oklch(0.25_0.1_230)] mt-8 mb-3"
-            >
-              {para.slice(3)}
-            </h2>,
-          );
-        } else if (para.startsWith("### ")) {
-          elements.push(
-            <h3
-              key={key++}
-              className="font-display text-xl font-semibold text-[oklch(0.38_0.12_225)] mt-6 mb-2"
-            >
-              {para.slice(4)}
-            </h3>,
-          );
-        } else if (para.startsWith("**") && para.endsWith("**")) {
-          elements.push(
-            <p key={key++} className="font-semibold text-foreground my-2">
-              {para.slice(2, -2)}
-            </p>,
-          );
-        } else if (para.startsWith("- ") || para.includes("\n- ")) {
-          // Bullet list
-          const items = para.split("\n").filter((l) => l.startsWith("- "));
-          elements.push(
-            <ul key={key++} className="list-disc pl-5 space-y-1 my-3">
-              {items.map((item) => (
-                <li key={item} className="text-foreground/80 text-base">
-                  {item.slice(2)}
-                </li>
-              ))}
-            </ul>,
-          );
-        } else {
-          const lines = para.split("\n");
-          elements.push(
-            <p
-              key={key++}
-              className="text-foreground/80 leading-relaxed my-3 text-base"
-            >
-              {lines.map((line, lineIdx) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: line content can repeat
-                <span key={lineIdx}>
-                  {line}
-                  {lineIdx < lines.length - 1 && <br />}
-                </span>
-              ))}
-            </p>,
-          );
-        }
-      }
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Render any remaining text
+  const remaining = content.slice(lastIndex);
+  if (remaining) {
+    elements.push(...renderText(remaining, key));
+  }
+
+  return elements;
+}
+
+/**
+ * Parse inline formatting tokens within a line of text.
+ * Handles: **bold**, *italic*, <color:#HEX>text</color>
+ */
+function renderInline(text: string): React.ReactNode[] {
+  // Regex matches bold (**text**), italic (*text* but not **), or color (<color:#HEX>text</color>)
+  const pattern =
+    /(\*\*([^*]+)\*\*)|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)|(<color:(#[0-9a-fA-F]{3,8})>([\s\S]*?)<\/color>)/g;
+
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let nodeKey = 0;
+  let match: RegExpExecArray | null;
+
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard exec loop pattern
+  while ((match = pattern.exec(text)) !== null) {
+    // Push plain text before this match
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[1]) {
+      // Bold: **text**
+      nodes.push(<strong key={nodeKey++}>{match[2]}</strong>);
+    } else if (match[3]) {
+      // Italic: *text*
+      nodes.push(<em key={nodeKey++}>{match[3]}</em>);
+    } else if (match[4]) {
+      // Color: <color:#HEX>text</color>
+      nodes.push(
+        <span key={nodeKey++} style={{ color: match[6] }}>
+          {match[7]}
+        </span>,
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Push remaining plain text
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function renderText(text: string, startKey: number): React.ReactNode[] {
+  const elements: React.ReactNode[] = [];
+  let key = startKey;
+
+  const paragraphs = text.split(/\n\n+/);
+  for (const para of paragraphs) {
+    if (!para.trim()) continue;
+
+    if (para.startsWith("## ")) {
+      elements.push(
+        <h2
+          key={key++}
+          className="font-display text-2xl font-bold text-[oklch(0.25_0.1_230)] mt-8 mb-3"
+        >
+          {renderInline(para.slice(3))}
+        </h2>,
+      );
+    } else if (para.startsWith("### ")) {
+      elements.push(
+        <h3
+          key={key++}
+          className="font-display text-xl font-semibold text-[oklch(0.38_0.12_225)] mt-6 mb-2"
+        >
+          {renderInline(para.slice(4))}
+        </h3>,
+      );
+    } else if (para.startsWith("**") && para.endsWith("**")) {
+      elements.push(
+        <p key={key++} className="font-semibold text-foreground my-2">
+          {renderInline(para.slice(2, -2))}
+        </p>,
+      );
+    } else if (para.startsWith("- ") || para.includes("\n- ")) {
+      const items = para.split("\n").filter((l) => l.startsWith("- "));
+      elements.push(
+        <ul key={key++} className="list-disc pl-5 space-y-1 my-3">
+          {items.map((item, itemIdx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: item text can repeat
+            <li key={itemIdx} className="text-foreground/80 text-base">
+              {renderInline(item.slice(2))}
+            </li>
+          ))}
+        </ul>,
+      );
+    } else {
+      const lines = para.split("\n");
+      elements.push(
+        <p
+          key={key++}
+          className="text-foreground/80 leading-relaxed my-3 text-base"
+        >
+          {lines.map((line, lineIdx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: line content can repeat
+            <span key={lineIdx}>
+              {renderInline(line)}
+              {lineIdx < lines.length - 1 && <br />}
+            </span>
+          ))}
+        </p>,
+      );
     }
   }
 
@@ -212,8 +315,10 @@ export default function BlogPostPage() {
     );
   }
 
-  const coverUrl = post.coverImage?.getDirectURL?.();
-  const contentImages: ExternalBlob[] = post.contentImages || [];
+  // Extract cover and content images from tags (backend doesn't return them)
+  const coverUrl = extractCoverImageUrl(post.tags || []);
+  const contentImages = extractContentImageUrls(post.tags || []);
+  const visibleTags = getVisibleTags(post.tags || []);
 
   return (
     <main className="min-h-screen" data-ocid="blog-post.page">
@@ -235,6 +340,9 @@ export default function BlogPostPage() {
               src={coverUrl}
               alt={post.title}
               className="w-full max-h-80 object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
             />
           </div>
         )}
@@ -273,11 +381,11 @@ export default function BlogPostPage() {
           {post.excerpt}
         </p>
 
-        {/* Tags */}
-        {post.tags && post.tags.length > 0 && (
+        {/* Visible Tags */}
+        {visibleTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-8">
             <Tag className="w-4 h-4 text-muted-foreground" />
-            {post.tags.map((tag) => (
+            {visibleTags.map((tag) => (
               <Badge key={tag} variant="secondary" className="text-xs">
                 #{tag}
               </Badge>

@@ -1,57 +1,30 @@
 # AyurGlow Secrets
 
 ## Current State
-New project. No existing code.
+The admin content section (`AdminPage.tsx`) uses a plain `<Textarea>` for writing blog post content. Users must manually type markdown syntax (e.g., `## Heading`, `- list`, `**bold**`). There is no toolbar or formatting UI. The `BlogPostPage.tsx` renders content via a custom `parseContent`/`renderText` function that already handles `## headings`, `- lists`, and `**bold**` markdown syntax.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Full Ayurvedic wellness blog/content website called "AyurGlow Secrets"
-- Tagline: "Ancient Ayurvedic Wisdom for Healthy Body, Glowing Skin & Strong Hair"
-- Blue and green color scheme
-- Logo in header
-- Navigation: Home, Health Remedies, Skin Care, Hair Care, Lifestyle & Weight, Chronic Health, Blog, Admin, About
-- Homepage: hero section, what we offer, why choose us, featured posts, about preview
-- Category pages with subcategories:
-  - Health Remedies: Immunity, Digestion, Weight Management, Diabetes & BP, Stress & Sleep
-  - Skin Care: Natural Glow, Acne & Pimples, Pigmentation, Anti-Aging, DIY Face Packs
-  - Hair Care: Hair Fall, Hair Growth, Dandruff & Scalp, Grey Hair, Oils & Masks
-  - Lifestyle & Weight Management: Weight Loss, Morning Routine, Stress Management, Detox, Yoga
-  - Chronic Health: Diabetes, Blood Pressure, Thyroid, PCOS, Arthritis, etc.
-- Pre-loaded remedy content for all categories with ingredients, application, benefits, frequency
-- Blog system: create, edit, publish posts with cover image upload and in-content image upload
-- Blog post features: cover image, in-content images with size control, comment section, publication date, publish immediately option
-- Admin panel (no login required): create/edit/delete blog posts, manage categories
-- Public blog listing page showing all published posts
-- "Best Ayurvedic Herbs for Glowing Skin" visible in both Admin and Blog pages as a sample post
-- Social media links section (Instagram, Facebook, YouTube) - "Connect With Us" in footer
-- No "Built with Caffeine.ai" branding
-- Image storage using blob-storage component (no storage restrictions)
-- All content publicly visible to anyone with the link
+- A rich text formatting toolbar above the content textarea in the admin Create/Edit Post form.
+- Toolbar buttons: **Normal** (clear formatting), **Bold** (wraps selection in `**...**`), *Italic* (wraps selection in `*...*`), and a **Color** picker with a set of preset colors that wraps selection in a color HTML tag (e.g., `<color:hex>text</color>`).
+- **Multiple text selection**: The toolbar applies formatting to whatever text the user has selected in the textarea (not just at the cursor).
+- The content textarea keeps its existing `font-mono text-sm` style and continues to store raw markdown/custom markup.
+- Update `renderText` in `BlogPostPage.tsx` to parse and render the new inline formatting:
+  - `**text**` → `<strong>` (already partially handled as block-level; extend to inline within paragraphs)
+  - `*text*` → `<em>`
+  - `<color:HEX>text</color>` → `<span style="color: #HEX">text</span>`
 
 ### Modify
-- N/A (new project)
+- `AdminPage.tsx`: Replace the plain `<Textarea>` in the Content section with a toolbar + textarea combo. The toolbar sits above the textarea with format buttons.
+- `BlogPostPage.tsx`: Update `renderText` to handle inline bold (`**...**`), italic (`*...*`), and color (`<color:HEX>...</color>`) within paragraph lines, not just as standalone block-level patterns.
 
 ### Remove
-- N/A (new project)
+- Nothing removed; the existing content textarea behavior is preserved (users can still type markdown manually).
 
 ## Implementation Plan
-
-### Backend (Motoko)
-1. Blog post data model: id, title, category, subcategory, content (rich text with image markers), coverImageId, contentImageIds, publishedAt, isPublished, tags, excerpt
-2. Image storage via blob-storage component for cover images and in-content images
-3. CRUD operations for blog posts: create, update, delete, get, list by category
-4. Comment model: id, postId, authorName, content, createdAt
-5. Add/get comments per post
-6. Pre-loaded static remedy content as structured data (not stored in backend, rendered from frontend constants)
-7. Category and subcategory listing
-
-### Frontend
-1. App shell: header with logo, nav, footer with social links
-2. Homepage: hero, features grid, categories preview, featured posts
-3. Category pages with subcategory filtering and remedy cards
-4. Individual remedy detail pages (static content)
-5. Blog listing page with category filter
-6. Blog post detail page with comments
-7. Admin page: post editor with rich text, cover image upload, in-content image upload with size options, publish date picker, publish immediately toggle
-8. All pages publicly accessible, no auth required
+1. In `AdminPage.tsx`, add a `RichTextToolbar` component (or inline JSX) with buttons: Normal, Bold, Italic, and a color palette picker (preset swatches: black, dark green, dark blue, red, orange, purple, teal).
+2. Implement `applyFormat(format, color?)` helper that reads the textarea's `selectionStart`/`selectionEnd`, wraps the selected text with the appropriate markup, and updates `form.content`.
+3. After applying format, restore the selection in the textarea using a `useEffect` or `setTimeout`.
+4. In `BlogPostPage.tsx`, update `renderText` to process inline formatting tokens within each line: parse `**...**`, `*...*`, and `<color:HEX>...</color>` patterns and render them as React inline elements.
+5. The color picker shows a small popover/dropdown with preset colored swatches; clicking one applies the color wrap to the selection.

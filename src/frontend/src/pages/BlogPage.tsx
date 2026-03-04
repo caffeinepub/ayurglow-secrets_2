@@ -7,6 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Calendar, Search } from "lucide-react";
 import { useState } from "react";
 import { useListPosts } from "../hooks/useQueries";
+import { extractCoverImageUrl, getVisibleTags } from "../utils/imageUtils";
 
 const CATEGORY_LABELS: Record<string, string> = {
   all: "All Posts",
@@ -139,7 +140,9 @@ export default function BlogPage() {
               data-ocid="blog.posts.list"
             >
               {filtered.map((post, i) => {
-                const coverUrl = post.coverImage?.getDirectURL?.();
+                // Use imageUtils to extract cover image from tags
+                const coverUrl = extractCoverImageUrl(post.tags || []);
+                const visibleTags = getVisibleTags(post.tags || []);
                 return (
                   <div key={post.id} data-ocid={`blog.item.${i + 1}`}>
                     <Link to="/blog/$id" params={{ id: post.id }}>
@@ -150,6 +153,10 @@ export default function BlogPage() {
                               src={coverUrl}
                               alt={post.title}
                               className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display =
+                                  "none";
+                              }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-5xl text-white/30">
@@ -180,6 +187,18 @@ export default function BlogPage() {
                           <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mb-4">
                             {post.excerpt}
                           </p>
+                          {visibleTags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-3">
+                              {visibleTags.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <div className="flex items-center justify-between">
                             {post.publishedAt ? (
                               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
