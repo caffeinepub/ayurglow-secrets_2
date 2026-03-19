@@ -108,6 +108,23 @@ export default function Footer() {
             Disclaimer: Content is for informational purposes only and does not
             constitute medical advice.
           </p>
+          <div className="flex items-center justify-center gap-4 mt-3">
+            <Link
+              to="/privacy-policy"
+              data-ocid="footer.privacy-policy.link"
+              className="text-xs text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
+            >
+              Privacy Policy
+            </Link>
+            <span className="text-white/20 text-xs">|</span>
+            <Link
+              to="/medical-disclaimer"
+              data-ocid="footer.medical-disclaimer.link"
+              className="text-xs text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
+            >
+              Medical Disclaimer
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

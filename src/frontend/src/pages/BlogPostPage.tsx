@@ -123,12 +123,12 @@ function parseContent(content: string, contentImageBlobs: ExternalBlob[]) {
 
 /**
  * Parse inline formatting tokens within a line of text.
- * Handles: **bold**, *italic*, <color:#HEX>text</color>
+ * Handles: **bold**, *italic*, <color:#HEX>text</color>, <align:left/center/right>text</align>
  */
 function renderInline(text: string): React.ReactNode[] {
-  // Regex matches bold (**text**), italic (*text* but not **), or color (<color:#HEX>text</color>)
+  // Regex matches bold (**text**), italic (*text* but not **), color (<color:#HEX>text</color>), or align (<align:left|center|right>text</align>)
   const pattern =
-    /(\*\*([^*]+)\*\*)|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)|(<color:(#[0-9a-fA-F]{3,8})>([\s\S]*?)<\/color>)/g;
+    /(\*\*([^*]+)\*\*)|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)|(<color:(#[0-9a-fA-F]{3,8})>([\s\S]*?)<\/color>)|(<align:(left|center|right)>([\s\S]*?)<\/align>)/g;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -155,6 +155,17 @@ function renderInline(text: string): React.ReactNode[] {
           {match[7]}
         </span>,
       );
+    } else if (match[8]) {
+      // Align: <align:left|center|right>text</align>
+      const alignment = match[9] as "left" | "center" | "right";
+      nodes.push(
+        <span
+          key={nodeKey++}
+          style={{ display: "block", textAlign: alignment }}
+        >
+          {match[10]}
+        </span>,
+      );
     }
 
     lastIndex = match.index + match[0].length;
@@ -176,34 +187,54 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
   for (const para of paragraphs) {
     if (!para.trim()) continue;
 
-    if (para.startsWith("## ")) {
+    // Check if entire paragraph is wrapped in an alignment tag
+    const alignMatch = para.match(
+      /^<align:(left|center|right)>([\s\S]*)<\/align>$/,
+    );
+    const alignStyle: React.CSSProperties | undefined = alignMatch
+      ? { textAlign: alignMatch[1] as "left" | "center" | "right" }
+      : undefined;
+
+    const paraContent = alignMatch ? alignMatch[2] : para;
+
+    if (paraContent.startsWith("## ")) {
       elements.push(
         <h2
           key={key++}
+          style={alignStyle}
           className="font-display text-2xl font-bold text-[oklch(0.25_0.1_230)] mt-8 mb-3"
         >
-          {renderInline(para.slice(3))}
+          {renderInline(paraContent.slice(3))}
         </h2>,
       );
-    } else if (para.startsWith("### ")) {
+    } else if (paraContent.startsWith("### ")) {
       elements.push(
         <h3
           key={key++}
+          style={alignStyle}
           className="font-display text-xl font-semibold text-[oklch(0.38_0.12_225)] mt-6 mb-2"
         >
-          {renderInline(para.slice(4))}
+          {renderInline(paraContent.slice(4))}
         </h3>,
       );
-    } else if (para.startsWith("**") && para.endsWith("**")) {
+    } else if (paraContent.startsWith("**") && paraContent.endsWith("**")) {
       elements.push(
-        <p key={key++} className="font-semibold text-foreground my-2">
-          {renderInline(para.slice(2, -2))}
+        <p
+          key={key++}
+          style={alignStyle}
+          className="font-semibold text-foreground my-2"
+        >
+          {renderInline(paraContent.slice(2, -2))}
         </p>,
       );
-    } else if (para.startsWith("- ") || para.includes("\n- ")) {
-      const items = para.split("\n").filter((l) => l.startsWith("- "));
+    } else if (paraContent.startsWith("- ") || paraContent.includes("\n- ")) {
+      const items = paraContent.split("\n").filter((l) => l.startsWith("- "));
       elements.push(
-        <ul key={key++} className="list-disc pl-5 space-y-1 my-3">
+        <ul
+          key={key++}
+          style={alignStyle}
+          className="list-disc pl-5 space-y-1 my-3"
+        >
           {items.map((item, itemIdx) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: item text can repeat
             <li key={itemIdx} className="text-foreground/80 text-base">
@@ -213,10 +244,11 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
         </ul>,
       );
     } else {
-      const lines = para.split("\n");
+      const lines = paraContent.split("\n");
       elements.push(
         <p
           key={key++}
+          style={alignStyle}
           className="text-foreground/80 leading-relaxed my-3 text-base"
         >
           {lines.map((line, lineIdx) => (

@@ -17,6 +17,8 @@ import HairPage from "./pages/HairPage";
 import HealthPage from "./pages/HealthPage";
 import HomePage from "./pages/HomePage";
 import LifestylePage from "./pages/LifestylePage";
+import MedicalDisclaimerPage from "./pages/MedicalDisclaimerPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import SkinPage from "./pages/SkinPage";
 
 // Root Layout
@@ -113,6 +115,18 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy-policy",
+  component: PrivacyPolicyPage,
+});
+
+const disclaimerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/medical-disclaimer",
+  component: MedicalDisclaimerPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   healthRoute,
@@ -123,6 +137,8 @@ const routeTree = rootRoute.addChildren([
   blogRoute,
   blogPostRoute,
   adminRoute,
+  privacyRoute,
+  disclaimerRoute,
 ]);
 
 const router = createRouter({ routeTree });

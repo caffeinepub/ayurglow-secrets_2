@@ -7,12 +7,12 @@ import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
 import Map "mo:core/Map";
 import Iter "mo:core/Iter";
-import Migration "migration";
+
 
 import MixinStorage "blob-storage/Mixin";
 import Storage "blob-storage/Storage";
 
-(with migration = Migration.run)
+
 actor {
   include MixinStorage();
 

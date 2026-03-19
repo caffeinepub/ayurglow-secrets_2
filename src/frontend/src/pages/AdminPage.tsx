@@ -32,6 +32,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
   Calendar,
   CheckCircle,
@@ -145,7 +148,14 @@ export default function AdminPage() {
   ];
 
   const applyFormat = (
-    type: "bold" | "italic" | "color" | "normal",
+    type:
+      | "bold"
+      | "italic"
+      | "color"
+      | "normal"
+      | "align-left"
+      | "align-center"
+      | "align-right",
     color?: string,
   ) => {
     const textarea = textareaRef.current;
@@ -172,7 +182,8 @@ export default function AdminPage() {
       formatted = selected
         .replace(/\*\*([^*]+)\*\*/g, "$1")
         .replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, "$1")
-        .replace(/<color:[^>]+>([\s\S]*?)<\/color>/g, "$1");
+        .replace(/<color:[^>]+>([\s\S]*?)<\/color>/g, "$1")
+        .replace(/<align:(left|center|right)>([\s\S]*?)<\/align>/g, "$2");
       newEnd = start + formatted.length;
     } else if (type === "bold") {
       formatted = `**${selected}**`;
@@ -182,6 +193,15 @@ export default function AdminPage() {
       newEnd = start + formatted.length;
     } else if (type === "color" && color) {
       formatted = `<color:${color}>${selected}</color>`;
+      newEnd = start + formatted.length;
+    } else if (type === "align-left") {
+      formatted = `<align:left>${selected}</align>`;
+      newEnd = start + formatted.length;
+    } else if (type === "align-center") {
+      formatted = `<align:center>${selected}</align>`;
+      newEnd = start + formatted.length;
+    } else if (type === "align-right") {
+      formatted = `<align:right>${selected}</align>`;
       newEnd = start + formatted.length;
     }
 
@@ -360,6 +380,10 @@ export default function AdminPage() {
     setActiveTab("create");
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveStatusMsg, setSaveStatusMsg] = useState("");
+
   const handleSubmit = async (publish: boolean) => {
     if (!form.title.trim()) {
       toast.error("Title is required.");
@@ -376,8 +400,38 @@ export default function AdminPage() {
       .filter(Boolean);
 
     const isPublished = publish;
+    setIsSaving(true);
+    setSaveProgress(0);
+    setSaveStatusMsg("Preparing...");
 
     try {
+      // Build cover blob with progress tracking for the actual upload
+      let finalCoverBlob: ExternalBlob | null = null;
+      if (coverImage) {
+        const rawBlob = coverImage.blob as ExternalBlob;
+        // Re-attach progress so we see it during the actual backend upload
+        finalCoverBlob = rawBlob.withUploadProgress((pct) => {
+          setSaveProgress(pct);
+          setSaveStatusMsg(`Uploading cover image... ${pct}%`);
+        });
+      }
+
+      // Build content image blobs with progress tracking
+      const totalContentImages = contentImages.length;
+      const finalContentBlobs: ExternalBlob[] = contentImages.map(
+        (img, idx) => {
+          const rawBlob = img.blob as ExternalBlob;
+          return rawBlob.withUploadProgress((pct) => {
+            setSaveProgress(pct);
+            setSaveStatusMsg(
+              `Uploading image ${idx + 1} of ${totalContentImages}... ${pct}%`,
+            );
+          });
+        },
+      );
+
+      setSaveStatusMsg("Saving post...");
+
       if (editingPost) {
         await updatePost.mutateAsync({
           id: editingPost.id,
@@ -388,8 +442,8 @@ export default function AdminPage() {
           excerpt: form.excerpt,
           tags,
           isPublished,
-          coverImage: (coverImage?.blob as ExternalBlob) ?? null,
-          contentImages: contentImages.map((img) => img.blob as ExternalBlob),
+          coverImage: finalCoverBlob,
+          contentImages: finalContentBlobs,
         });
         toast.success("Post updated successfully!");
       } else {
@@ -401,8 +455,8 @@ export default function AdminPage() {
           excerpt: form.excerpt,
           tags,
           isPublished,
-          coverImage: (coverImage?.blob as ExternalBlob) ?? null,
-          contentImages: contentImages.map((img) => img.blob as ExternalBlob),
+          coverImage: finalCoverBlob,
+          contentImages: finalContentBlobs,
         });
         toast.success(isPublished ? "Post published!" : "Draft saved!");
       }
@@ -413,6 +467,10 @@ export default function AdminPage() {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Failed to save post: ${msg}`);
       console.error(err);
+    } finally {
+      setIsSaving(false);
+      setSaveProgress(0);
+      setSaveStatusMsg("");
     }
   };
 
@@ -427,7 +485,7 @@ export default function AdminPage() {
     }
   };
 
-  const isPending = createPost.isPending || updatePost.isPending;
+  const isPending = createPost.isPending || updatePost.isPending || isSaving;
 
   return (
     <main className="min-h-screen" data-ocid="admin.page">
@@ -913,6 +971,45 @@ export default function AdminPage() {
                       )}
                     </div>
 
+                    <div className="w-px h-5 bg-border mx-0.5" />
+
+                    {/* Alignment buttons */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("align-left")}
+                      title="Align left"
+                      data-ocid="admin.content.format-align-left.button"
+                    >
+                      <AlignLeft className="w-3.5 h-3.5" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("align-center")}
+                      title="Align center"
+                      data-ocid="admin.content.format-align-center.button"
+                    >
+                      <AlignCenter className="w-3.5 h-3.5" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("align-right")}
+                      title="Align right"
+                      data-ocid="admin.content.format-align-right.button"
+                    >
+                      <AlignRight className="w-3.5 h-3.5" />
+                    </Button>
+
                     <div className="ml-auto text-xs text-muted-foreground hidden sm:block">
                       Select text → apply format
                     </div>
@@ -1090,6 +1187,35 @@ export default function AdminPage() {
                   )}
                 </div>
 
+                {/* Upload/Save Progress */}
+                {isSaving && (
+                  <div
+                    className="rounded-xl border border-border bg-card p-4 space-y-2"
+                    data-ocid="admin.post.save.loading_state"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
+                      <span>{saveStatusMsg || "Saving..."}</span>
+                    </div>
+                    {saveProgress > 0 && (
+                      <div className="space-y-1">
+                        <div className="w-full bg-muted rounded-full h-2">
+                          <div
+                            className="h-2 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${saveProgress}%`,
+                              background: "oklch(0.42 0.14 155)",
+                            }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {saveProgress}% — Please wait, do not close the page
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="flex items-center gap-3 pb-8">
                   <Button
@@ -1120,9 +1246,12 @@ export default function AdminPage() {
                   </Button>
                   <Button
                     variant="ghost"
+                    disabled={isPending}
                     onClick={() => {
-                      resetForm();
-                      setActiveTab("posts");
+                      if (!isPending) {
+                        resetForm();
+                        setActiveTab("posts");
+                      }
                     }}
                     data-ocid="admin.post.cancel.cancel_button"
                   >

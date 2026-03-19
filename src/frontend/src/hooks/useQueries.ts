@@ -9,14 +9,16 @@ export function useListPosts() {
   return useQuery<BlogPost[]>({
     queryKey: ["posts"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor) throw new Error("Actor not ready");
       return actor.listPosts();
     },
+    // Only run when actor is available so we never cache an empty-array result.
     enabled: !!actor,
     // Always treat data as stale so posts reload on every page visit.
     // This ensures public users sharing the link always see fresh content.
     staleTime: 0,
-    retry: 3,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     refetchOnMount: true,
     refetchOnWindowFocus: false,
   });
@@ -27,12 +29,13 @@ export function useListPostsByCategory(category: string) {
   return useQuery<BlogPost[]>({
     queryKey: ["posts", "category", category],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor) throw new Error("Actor not ready");
       return actor.listPostsByCategory(category);
     },
     enabled: !!actor && !!category,
     staleTime: 0,
-    retry: 3,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     refetchOnMount: true,
     refetchOnWindowFocus: false,
   });
@@ -43,12 +46,13 @@ export function useGetPost(id: string) {
   return useQuery<BlogPost>({
     queryKey: ["post", id],
     queryFn: async () => {
-      if (!actor) throw new Error("No actor available");
+      if (!actor) throw new Error("Actor not ready");
       return actor.getPost(id);
     },
     enabled: !!actor && !!id,
     staleTime: 0,
-    retry: 3,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     refetchOnMount: true,
     refetchOnWindowFocus: false,
   });
@@ -60,12 +64,13 @@ export function useListComments(postId: string) {
   return useQuery<Comment[]>({
     queryKey: ["comments", postId],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor) throw new Error("Actor not ready");
       return actor.listComments(postId);
     },
     enabled: !!actor && !!postId,
     staleTime: 0,
-    retry: 3,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     refetchOnMount: true,
     refetchOnWindowFocus: false,
   });
