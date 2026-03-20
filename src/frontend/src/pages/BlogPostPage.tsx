@@ -151,19 +151,19 @@ function renderInline(text: string): React.ReactNode[] {
     } else if (match[4]) {
       // Color: <color:#HEX>text</color>
       nodes.push(
-        <span key={nodeKey++} style={{ color: match[6] }}>
-          {match[7]}
+        <span key={nodeKey++} style={{ color: match[5] }}>
+          {match[6]}
         </span>,
       );
-    } else if (match[8]) {
+    } else if (match[7]) {
       // Align: <align:left|center|right>text</align>
-      const alignment = match[9] as "left" | "center" | "right";
+      const alignment = match[8] as "left" | "center" | "right";
       nodes.push(
         <span
           key={nodeKey++}
           style={{ display: "block", textAlign: alignment }}
         >
-          {match[10]}
+          {match[9]}
         </span>,
       );
     }
@@ -183,7 +183,21 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   let key = startKey;
 
-  const paragraphs = text.split(/\n\n+/);
+  // Pre-process: if an alignment tag spans multiple paragraphs (contains \n\n),
+  // split it so each paragraph gets its own alignment wrapper.
+  const preprocessed = text.replace(
+    /<align:(left|center|right)>([\s\S]*?)<\/align>/g,
+    (_, dir, inner) => {
+      return inner
+        .split(/\n\n+/)
+        .map((part: string) =>
+          part.trim() ? `<align:${dir}>${part}</align>` : part,
+        )
+        .join("\n\n");
+    },
+  );
+
+  const paragraphs = preprocessed.split(/\n\n+/);
   for (const para of paragraphs) {
     if (!para.trim()) continue;
 
