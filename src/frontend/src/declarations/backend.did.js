@@ -47,6 +47,11 @@ export const BlogPost = IDL.Record({
   'category' : Category,
   'contentImages' : IDL.Vec(ExternalBlob),
 });
+export const AuthorProfile = IDL.Record({
+  'name' : IDL.Text,
+  'bio' : IDL.Text,
+  'title' : IDL.Text,
+});
 
 export const idlService = IDL.Service({
   '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -92,6 +97,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'deletePost' : IDL.Func([IDL.Text], [], []),
+  'getAuthorProfile' : IDL.Func([], [AuthorProfile], ['query']),
   'getCategories' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getPost' : IDL.Func([IDL.Text], [BlogPost], ['query']),
   'listComments' : IDL.Func([IDL.Text], [IDL.Vec(Comment)], ['query']),
@@ -102,6 +108,9 @@ export const idlService = IDL.Service({
       [IDL.Vec(BlogPost)],
       ['query'],
     ),
+  'setAuthorProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'getPostExpertise' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'setPostExpertise' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updatePost' : IDL.Func(
       [
         IDL.Text,
@@ -162,6 +171,11 @@ export const idlFactory = ({ IDL }) => {
     'category' : Category,
     'contentImages' : IDL.Vec(ExternalBlob),
   });
+  const AuthorProfile = IDL.Record({
+    'name' : IDL.Text,
+    'bio' : IDL.Text,
+    'title' : IDL.Text,
+  });
   
   return IDL.Service({
     '_caffeineStorageBlobIsLive' : IDL.Func(
@@ -207,6 +221,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'deletePost' : IDL.Func([IDL.Text], [], []),
+    'getAuthorProfile' : IDL.Func([], [AuthorProfile], ['query']),
     'getCategories' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getPost' : IDL.Func([IDL.Text], [BlogPost], ['query']),
     'listComments' : IDL.Func([IDL.Text], [IDL.Vec(Comment)], ['query']),
@@ -221,6 +236,9 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(BlogPost)],
         ['query'],
       ),
+    'setAuthorProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'getPostExpertise' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'setPostExpertise' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updatePost' : IDL.Func(
         [
           IDL.Text,

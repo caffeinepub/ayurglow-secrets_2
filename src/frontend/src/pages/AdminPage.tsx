@@ -47,16 +47,21 @@ import {
   Trash2,
   Type,
   Upload,
+  User,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
 import type { BlogPost, ExternalBlob as ExternalBlobType } from "../backend.d";
 import {
   useCreatePost,
   useDeletePost,
+  useGetAuthorProfile,
+  useGetPostExpertise,
   useListPosts,
+  useSetAuthorProfile,
+  useSetPostExpertise,
   useUpdatePost,
 } from "../hooks/useQueries";
 import { getVisibleTags } from "../utils/imageUtils";
@@ -81,6 +86,7 @@ interface PostForm {
   isPublished: boolean;
   publishImmediately: boolean;
   publishDate: string;
+  authorExpertise: string;
 }
 
 const emptyForm: PostForm = {
@@ -93,6 +99,7 @@ const emptyForm: PostForm = {
   isPublished: false,
   publishImmediately: true,
   publishDate: new Date().toISOString().slice(0, 10),
+  authorExpertise: "",
 };
 
 const CATEGORIES = [
@@ -115,11 +122,33 @@ export default function AdminPage() {
   const createPost = useCreatePost();
   const updatePost = useUpdatePost();
   const deletePost = useDeletePost();
+  const { data: fetchedAuthorProfile } = useGetAuthorProfile();
+  const setAuthorProfileMutation = useSetAuthorProfile();
+  const setPostExpertiseMutation = useSetPostExpertise();
 
   const [activeTab, setActiveTab] = useState("posts");
   const [editingPost, setEditingPost] = useState<BlogPost | null>(null);
+  const expertiseLoadedForRef = useRef<string | null>(null);
+  const { data: fetchedExpertise } = useGetPostExpertise(
+    editingPost?.id ?? null,
+  );
   const [form, setForm] = useState<PostForm>(emptyForm);
+  useEffect(() => {
+    const currentId = editingPost?.id ?? null;
+    if (
+      fetchedExpertise !== undefined &&
+      expertiseLoadedForRef.current !== currentId
+    ) {
+      expertiseLoadedForRef.current = currentId;
+      setForm((f) => ({ ...f, authorExpertise: fetchedExpertise }));
+    }
+  }, [fetchedExpertise, editingPost?.id]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [authorForm, setAuthorForm] = useState({
+    name: "",
+    bio: "",
+    title: "",
+  });
 
   // Image state
   const [coverImage, setCoverImage] = useState<UploadedImage | null>(null);
@@ -316,7 +345,19 @@ export default function AdminPage() {
     );
   };
 
+  // Sync fetched author profile into author form (runs once when data loads)
+  const [authorFormInitialized, setAuthorFormInitialized] = useState(false);
+  if (fetchedAuthorProfile && !authorFormInitialized) {
+    setAuthorForm({
+      name: fetchedAuthorProfile.name,
+      bio: fetchedAuthorProfile.bio,
+      title: fetchedAuthorProfile.title,
+    });
+    setAuthorFormInitialized(true);
+  }
+
   const resetForm = () => {
+    expertiseLoadedForRef.current = null;
     setForm(emptyForm);
     setEditingPost(null);
     // Revoke any blob URLs
@@ -333,6 +374,7 @@ export default function AdminPage() {
   };
 
   const handleEditPost = (post: BlogPost) => {
+    expertiseLoadedForRef.current = null;
     setEditingPost(post);
 
     const visibleTags = getVisibleTags(post.tags || []);
@@ -351,6 +393,7 @@ export default function AdminPage() {
             .toISOString()
             .slice(0, 10)
         : new Date().toISOString().slice(0, 10),
+      authorExpertise: "", // loaded by useGetPostExpertise query via useEffect
     });
 
     // Restore cover image from ExternalBlob
@@ -405,6 +448,7 @@ export default function AdminPage() {
     setSaveStatusMsg("Preparing...");
 
     try {
+      const expertiseToSave = form.authorExpertise;
       // Build cover blob with progress tracking for the actual upload
       let finalCoverBlob: ExternalBlob | null = null;
       if (coverImage) {
@@ -433,7 +477,7 @@ export default function AdminPage() {
       setSaveStatusMsg("Saving post...");
 
       if (editingPost) {
-        await updatePost.mutateAsync({
+        const updatedPost = await updatePost.mutateAsync({
           id: editingPost.id,
           title: form.title,
           category: form.category,
@@ -445,9 +489,21 @@ export default function AdminPage() {
           coverImage: finalCoverBlob,
           contentImages: finalContentBlobs,
         });
+        try {
+          await setPostExpertiseMutation.mutateAsync({
+            postId: updatedPost.id,
+            expertise: expertiseToSave,
+          });
+        } catch (expertiseErr) {
+          const msg =
+            expertiseErr instanceof Error
+              ? expertiseErr.message
+              : String(expertiseErr);
+          toast.error(`Expertise could not be saved: ${msg}`);
+        }
         toast.success("Post updated successfully!");
       } else {
-        await createPost.mutateAsync({
+        const newPost = await createPost.mutateAsync({
           title: form.title,
           category: form.category,
           subcategory: form.subcategory,
@@ -458,6 +514,18 @@ export default function AdminPage() {
           coverImage: finalCoverBlob,
           contentImages: finalContentBlobs,
         });
+        try {
+          await setPostExpertiseMutation.mutateAsync({
+            postId: newPost.id,
+            expertise: expertiseToSave,
+          });
+        } catch (expertiseErr) {
+          const msg =
+            expertiseErr instanceof Error
+              ? expertiseErr.message
+              : String(expertiseErr);
+          toast.error(`Expertise could not be saved: ${msg}`);
+        }
         toast.success(isPublished ? "Post published!" : "Draft saved!");
       }
 
@@ -516,6 +584,9 @@ export default function AdminPage() {
                 </TabsTrigger>
                 <TabsTrigger value="create" data-ocid="admin.create.tab">
                   {editingPost ? "Edit Post" : "Create New Post"}
+                </TabsTrigger>
+                <TabsTrigger value="author" data-ocid="admin.author.tab">
+                  Author Profile
                 </TabsTrigger>
               </TabsList>
 
@@ -775,6 +846,32 @@ export default function AdminPage() {
                       }
                       className="mt-1"
                       data-ocid="admin.post.tags.input"
+                    />
+                  </div>
+                </div>
+
+                {/* Author Experience & Expertise */}
+                <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                  <h2 className="font-display text-lg font-semibold text-foreground">
+                    Author Experience &amp; Expertise
+                  </h2>
+                  <div>
+                    <Label htmlFor="authorExpertise">
+                      Author Experience &amp; Expertise
+                    </Label>
+                    <Textarea
+                      id="authorExpertise"
+                      placeholder="Describe your experience and expertise related to this topic..."
+                      value={form.authorExpertise}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          authorExpertise: e.target.value,
+                        }))
+                      }
+                      rows={4}
+                      className="mt-1"
+                      data-ocid="admin.post.author_expertise.textarea"
                     />
                   </div>
                 </div>
@@ -1256,6 +1353,127 @@ export default function AdminPage() {
                     data-ocid="admin.post.cancel.cancel_button"
                   >
                     Cancel
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ===== AUTHOR PROFILE TAB ===== */}
+            <TabsContent value="author">
+              <div className="max-w-2xl space-y-6">
+                <div className="rounded-xl border border-border bg-card p-6 space-y-5">
+                  <h2 className="font-display text-lg font-semibold text-foreground flex items-center gap-2">
+                    <User className="w-5 h-5 text-[oklch(0.38_0.12_225)]" />
+                    Author Profile
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    This information appears in the "About the Author" section
+                    at the bottom of every blog post.
+                  </p>
+
+                  {/* Preview */}
+                  {(authorForm.name || authorForm.bio) && (
+                    <div className="rounded-xl border border-border bg-gradient-to-br from-[oklch(0.97_0.02_155)] to-[oklch(0.97_0.02_225)] p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.42_0.14_155)] mb-3">
+                        Preview
+                      </p>
+                      <div className="flex items-start gap-4">
+                        <div className="w-14 h-14 rounded-full bg-[oklch(0.38_0.12_225)] text-white flex items-center justify-center text-lg font-bold flex-shrink-0">
+                          {authorForm.name
+                            ? authorForm.name.charAt(0).toUpperCase()
+                            : "A"}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.42_0.14_155)] mb-0.5">
+                            About the Author
+                          </p>
+                          <h3 className="font-display text-base font-bold text-[oklch(0.2_0.1_230)]">
+                            {authorForm.name || "Author Name"}
+                          </h3>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            {authorForm.title || "Title / Role"}
+                          </p>
+                          <p className="text-xs text-foreground/80 leading-relaxed">
+                            {authorForm.bio || "Bio will appear here..."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <Label htmlFor="author-name">Display Name</Label>
+                    <input
+                      id="author-name"
+                      type="text"
+                      placeholder="e.g. Dr. Priya Sharma"
+                      value={authorForm.name}
+                      onChange={(e) =>
+                        setAuthorForm((f) => ({ ...f, name: e.target.value }))
+                      }
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 mt-1"
+                      data-ocid="admin.author.name.input"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="author-title">Title / Role</Label>
+                    <input
+                      id="author-title"
+                      type="text"
+                      placeholder="e.g. Ayurveda Expert & Wellness Writer"
+                      value={authorForm.title}
+                      onChange={(e) =>
+                        setAuthorForm((f) => ({ ...f, title: e.target.value }))
+                      }
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 mt-1"
+                      data-ocid="admin.author.title.input"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="author-bio">Bio</Label>
+                    <textarea
+                      id="author-bio"
+                      placeholder="A short paragraph about the author, their expertise, and background in Ayurveda..."
+                      value={authorForm.bio}
+                      onChange={(e) =>
+                        setAuthorForm((f) => ({ ...f, bio: e.target.value }))
+                      }
+                      rows={4}
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 mt-1"
+                      data-ocid="admin.author.bio.textarea"
+                    />
+                  </div>
+
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await setAuthorProfileMutation.mutateAsync({
+                          name: authorForm.name.trim(),
+                          bio: authorForm.bio.trim(),
+                          title: authorForm.title.trim(),
+                        });
+                        toast.success("Author profile updated!");
+                      } catch {
+                        toast.error("Failed to update author profile.");
+                      }
+                    }}
+                    disabled={setAuthorProfileMutation.isPending}
+                    className="bg-[oklch(0.38_0.12_225)] hover:bg-[oklch(0.32_0.12_225)] text-white"
+                    data-ocid="admin.author.save.primary_button"
+                  >
+                    {setAuthorProfileMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Save Profile
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

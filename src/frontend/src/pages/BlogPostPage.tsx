@@ -8,6 +8,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Calendar,
+  GraduationCap,
   Loader2,
   MessageSquare,
   Send,
@@ -19,7 +20,9 @@ import { toast } from "sonner";
 import type { ExternalBlob } from "../backend.d";
 import {
   useAddComment,
+  useGetAuthorProfile,
   useGetPost,
+  useGetPostExpertise,
   useListComments,
 } from "../hooks/useQueries";
 import { getVisibleTags } from "../utils/imageUtils";
@@ -283,8 +286,10 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
 export default function BlogPostPage() {
   const { id } = useParams({ from: "/blog/$id" });
   const { data: post, isLoading: postLoading, isError } = useGetPost(id);
+  const { data: postExpertise } = useGetPostExpertise(id);
   const { data: comments, isLoading: commentsLoading } = useListComments(id);
   const addComment = useAddComment();
+  const { data: authorProfile } = useGetAuthorProfile();
 
   const [authorName, setAuthorName] = useState("");
   const [commentContent, setCommentContent] = useState("");
@@ -432,6 +437,63 @@ export default function BlogPostPage() {
         <article className="prose-ayur mb-12" data-ocid="blog-post.editor">
           {parseContent(post.content, contentImageBlobs)}
         </article>
+
+        {/* Author Experience & Expertise */}
+        {postExpertise && (
+          <div
+            className="rounded-2xl border border-[oklch(0.85_0.08_155)] bg-gradient-to-br from-[oklch(0.96_0.03_155)] to-[oklch(0.96_0.03_225)] p-6 mb-6"
+            data-ocid="blog-post.author_expertise.card"
+          >
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[oklch(0.38_0.14_155)] text-white flex items-center justify-center flex-shrink-0">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.42_0.14_155)] mb-0.5">
+                  About This Topic
+                </p>
+                <h3 className="font-display text-lg font-bold text-[oklch(0.2_0.1_230)]">
+                  Author Experience &amp; Expertise
+                </h3>
+              </div>
+            </div>
+            <p className="text-sm text-foreground/80 leading-relaxed pl-13">
+              {postExpertise}
+            </p>
+          </div>
+        )}
+
+        {/* Author Bio */}
+        {authorProfile?.name && (
+          <div
+            className="rounded-2xl border border-border bg-gradient-to-br from-[oklch(0.97_0.02_155)] to-[oklch(0.97_0.02_225)] p-6 mb-10"
+            data-ocid="blog-post.author.card"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-16 h-16 rounded-full bg-[oklch(0.38_0.12_225)] text-white flex items-center justify-center text-xl font-bold flex-shrink-0">
+                {authorProfile.name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.42_0.14_155)] mb-0.5">
+                  About the Author
+                </p>
+                <h3 className="font-display text-lg font-bold text-[oklch(0.2_0.1_230)]">
+                  {authorProfile.name}
+                </h3>
+                {authorProfile.title && (
+                  <p className="text-sm text-muted-foreground mb-2">
+                    {authorProfile.title}
+                  </p>
+                )}
+                {authorProfile.bio && (
+                  <p className="text-sm text-foreground/80 leading-relaxed">
+                    {authorProfile.bio}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Divider */}
         <hr className="border-border my-10" />

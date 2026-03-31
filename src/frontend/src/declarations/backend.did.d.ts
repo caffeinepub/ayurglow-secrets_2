@@ -10,6 +10,11 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface AuthorProfile {
+  'name': string,
+  'bio': string,
+  'title': string,
+}
 export interface BlogPost {
   'id' : string,
   'title' : string,
@@ -22,6 +27,7 @@ export interface BlogPost {
   'excerpt' : string,
   'category' : Category,
   'contentImages' : Array<ExternalBlob>,
+  'authorExpertise' : string,
 }
 export type Category = { 'hair' : null } |
   { 'skin' : null } |
@@ -75,16 +81,19 @@ export interface _SERVICE {
       boolean,
       [] | [ExternalBlob],
       Array<ExternalBlob>,
+      string,
     ],
     BlogPost
   >,
   'deletePost' : ActorMethod<[string], undefined>,
+  'getAuthorProfile' : ActorMethod<[], AuthorProfile>,
   'getCategories' : ActorMethod<[], Array<string>>,
   'getPost' : ActorMethod<[string], BlogPost>,
   'listComments' : ActorMethod<[string], Array<Comment>>,
   'listPosts' : ActorMethod<[], Array<BlogPost>>,
   'listPostsByCategory' : ActorMethod<[string], Array<BlogPost>>,
   'listPostsBySubcategory' : ActorMethod<[string], Array<BlogPost>>,
+  'setAuthorProfile' : ActorMethod<[string, string, string], undefined>,
   'updatePost' : ActorMethod<
     [
       string,
@@ -97,9 +106,12 @@ export interface _SERVICE {
       boolean,
       [] | [ExternalBlob],
       Array<ExternalBlob>,
+      string,
     ],
     BlogPost
   >,
+  'getPostExpertise' : ActorMethod<[string], string>,
+  'setPostExpertise' : ActorMethod<[string, string], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

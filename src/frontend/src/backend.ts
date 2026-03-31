@@ -127,6 +127,12 @@ export enum Category {
     lifestyle = "lifestyle",
     health = "health"
 }
+export interface AuthorProfile {
+    name: string;
+    bio: string;
+    title: string;
+}
+
 export interface backendInterface {
     _caffeineStorageBlobIsLive(hash: Uint8Array): Promise<boolean>;
     _caffeineStorageBlobsToDelete(): Promise<Array<Uint8Array>>;
@@ -144,6 +150,10 @@ export interface backendInterface {
     listPostsByCategory(category: string): Promise<Array<BlogPost>>;
     listPostsBySubcategory(subcategory: string): Promise<Array<BlogPost>>;
     updatePost(id: string, title: string, category: string, subcategory: string, content: string, excerpt: string, tags: Array<string>, isPublished: boolean, coverImage: ExternalBlob | null, contentImages: Array<ExternalBlob>): Promise<BlogPost>;
+    getAuthorProfile(): Promise<AuthorProfile>;
+    setAuthorProfile(name: string, bio: string, title: string): Promise<void>;
+    getPostExpertise(postId: string): Promise<string>;
+    setPostExpertise(postId: string, expertise: string): Promise<void>;
 }
 import type { BlogPost as _BlogPost, Category as _Category, ExternalBlob as _ExternalBlob, Time as _Time, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -372,6 +382,58 @@ export class Backend implements backendInterface {
             return from_candid_BlogPost_n11(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getAuthorProfile(): Promise<AuthorProfile> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAuthorProfile();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAuthorProfile();
+            return result;
+        }
+    }
+    async setAuthorProfile(arg0: string, arg1: string, arg2: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setAuthorProfile(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setAuthorProfile(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async getPostExpertise(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                return await this.actor.getPostExpertise(arg0);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            return await this.actor.getPostExpertise(arg0);
+        }
+    }
+    async setPostExpertise(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                return await this.actor.setPostExpertise(arg0, arg1);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            return await this.actor.setPostExpertise(arg0, arg1);
+        }
+    }
 }
 async function from_candid_BlogPost_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BlogPost): Promise<BlogPost> {
     return await from_candid_record_n12(_uploadFile, _downloadFile, value);
@@ -421,6 +483,7 @@ async function from_candid_record_n12(_uploadFile: (file: ExternalBlob) => Promi
     excerpt: string;
     category: Category;
     contentImages: Array<ExternalBlob>;
+    authorExpertise: string;
 }> {
     return {
         id: value.id,
@@ -433,7 +496,7 @@ async function from_candid_record_n12(_uploadFile: (file: ExternalBlob) => Promi
         coverImage: record_opt_to_undefined(await from_candid_opt_n14(_uploadFile, _downloadFile, value.coverImage)),
         excerpt: value.excerpt,
         category: from_candid_Category_n16(_uploadFile, _downloadFile, value.category),
-        contentImages: await from_candid_vec_n18(_uploadFile, _downloadFile, value.contentImages)
+        contentImages: await from_candid_vec_n18(_uploadFile, _downloadFile, value.contentImages),
     };
 }
 function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {

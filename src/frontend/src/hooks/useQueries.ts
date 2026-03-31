@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ExternalBlob } from "../backend";
-import type { BlogPost, Comment } from "../backend.d";
+import type { AuthorProfile, BlogPost, Comment } from "../backend.d";
 import { useActor } from "./useActor";
 
 // ==================== POSTS ====================
@@ -12,10 +12,7 @@ export function useListPosts() {
       if (!actor) throw new Error("Actor not ready");
       return actor.listPosts();
     },
-    // Only run when actor is available so we never cache an empty-array result.
     enabled: !!actor,
-    // Always treat data as stale so posts reload on every page visit.
-    // This ensures public users sharing the link always see fresh content.
     staleTime: 0,
     retry: 5,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
@@ -180,6 +177,72 @@ export function useDeletePost() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["posts"] });
+    },
+  });
+}
+
+// ==================== AUTHOR PROFILE ====================
+export function useGetAuthorProfile() {
+  const { actor } = useActor();
+  return useQuery<AuthorProfile>({
+    queryKey: ["authorProfile"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor not ready");
+      return actor.getAuthorProfile();
+    },
+    enabled: !!actor,
+    staleTime: 0,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+  });
+}
+
+export function useSetAuthorProfile() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      name: string;
+      bio: string;
+      title: string;
+    }) => {
+      if (!actor) throw new Error("No actor available");
+      return actor.setAuthorProfile(params.name, params.bio, params.title);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["authorProfile"] });
+    },
+  });
+}
+
+export function useGetPostExpertise(postId: string | null) {
+  const { actor } = useActor();
+  return useQuery<string>({
+    queryKey: ["postExpertise", postId],
+    queryFn: async () => {
+      if (!actor || !postId) return "";
+      return actor.getPostExpertise(postId);
+    },
+    enabled: !!actor && !!postId,
+    staleTime: 0,
+    // Prevent background refetches from interfering with in-progress edits
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+  });
+}
+
+export function useSetPostExpertise() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { postId: string; expertise: string }) => {
+      if (!actor) throw new Error("No actor available");
+      return actor.setPostExpertise(params.postId, params.expertise);
+    },
+    onSuccess: (_, { postId }) => {
+      queryClient.invalidateQueries({ queryKey: ["postExpertise", postId] });
     },
   });
 }

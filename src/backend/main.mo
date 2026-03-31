@@ -16,6 +16,12 @@ import Storage "blob-storage/Storage";
 actor {
   include MixinStorage();
 
+  type AuthorProfile = {
+    name : Text;
+    bio : Text;
+    title : Text;
+  };
+
   type BlogPost = {
     id : Text;
     title : Text;
@@ -64,6 +70,13 @@ actor {
 
   let blogPosts = Map.empty<Text, BlogPost>();
   let comments = Map.empty<Text, List.List<Comment>>();
+  let expertiseMap = Map.empty<Text, Text>();
+
+  var authorProfile : AuthorProfile = {
+    name = "AyurGlow Author";
+    bio = "Passionate about Ayurvedic wisdom and natural healing. Sharing time-tested remedies for modern wellness.";
+    title = "Ayurveda Expert & Wellness Writer";
+  };
 
   func textToCategory(text : Text) : Category {
     switch (text) {
@@ -91,6 +104,25 @@ actor {
   };
 
   blogPosts.add(samplePost.id, samplePost);
+
+  public shared ({ caller }) func setAuthorProfile(name : Text, bio : Text, title : Text) : async () {
+    authorProfile := { name; bio; title };
+  };
+
+  public query ({ caller }) func getAuthorProfile() : async AuthorProfile {
+    authorProfile;
+  };
+
+  public shared ({ caller }) func setPostExpertise(postId : Text, expertise : Text) : async () {
+    expertiseMap.add(postId, expertise);
+  };
+
+  public query ({ caller }) func getPostExpertise(postId : Text) : async Text {
+    switch (expertiseMap.get(postId)) {
+      case (null) { "" };
+      case (?expertise) { expertise };
+    };
+  };
 
   public shared ({ caller }) func createPost(title : Text, category : Text, subcategory : Text, content : Text, excerpt : Text, tags : [Text], isPublished : Bool, coverImage : ?Storage.ExternalBlob, contentImages : [Storage.ExternalBlob]) : async BlogPost {
     let postId = nextPostId.toText();
