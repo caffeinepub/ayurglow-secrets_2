@@ -131,7 +131,7 @@ function parseContent(content: string, contentImageBlobs: ExternalBlob[]) {
 function renderInline(text: string): React.ReactNode[] {
   // Regex matches bold (**text**), italic (*text* but not **), color (<color:#HEX>text</color>), or align (<align:left|center|right>text</align>)
   const pattern =
-    /(\*\*([^*]+)\*\*)|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)|(<color:(#[0-9a-fA-F]{3,8})>([\s\S]*?)<\/color>)|(<align:(left|center|right)>([\s\S]*?)<\/align>)/g;
+    /(\*\*([^*]+)\*\*)|(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)|(<color:(#[0-9a-fA-F]{3,8})>([\s\S]*?)<\/color>)|(<align:(left|center|right|justify)>([\s\S]*?)<\/align>)/g;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -160,7 +160,7 @@ function renderInline(text: string): React.ReactNode[] {
       );
     } else if (match[7]) {
       // Align: <align:left|center|right>text</align>
-      const alignment = match[8] as "left" | "center" | "right";
+      const alignment = match[8] as "left" | "center" | "right" | "justify";
       nodes.push(
         <span
           key={nodeKey++}
@@ -189,7 +189,7 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
   // Pre-process: if an alignment tag spans multiple paragraphs (contains \n\n),
   // split it so each paragraph gets its own alignment wrapper.
   const preprocessed = text.replace(
-    /<align:(left|center|right)>([\s\S]*?)<\/align>/g,
+    /<align:(left|center|right|justify)>([\s\S]*?)<\/align>/g,
     (_, dir, inner) => {
       return inner
         .split(/\n\n+/)
@@ -206,11 +206,11 @@ function renderText(text: string, startKey: number): React.ReactNode[] {
 
     // Check if entire paragraph is wrapped in an alignment tag
     const alignMatch = para.match(
-      /^<align:(left|center|right)>([\s\S]*)<\/align>$/,
+      /^<align:(left|center|right|justify)>([\s\S]*)<\/align>$/,
     );
-    const alignStyle: React.CSSProperties | undefined = alignMatch
-      ? { textAlign: alignMatch[1] as "left" | "center" | "right" }
-      : undefined;
+    const alignStyle: React.CSSProperties = alignMatch
+      ? { textAlign: alignMatch[1] as "left" | "center" | "right" | "justify" }
+      : { textAlign: "justify" };
 
     const paraContent = alignMatch ? alignMatch[2] : para;
 

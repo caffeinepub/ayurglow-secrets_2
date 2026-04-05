@@ -33,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlignCenter,
+  AlignJustify,
   AlignLeft,
   AlignRight,
   Bold,
@@ -184,7 +185,8 @@ export default function AdminPage() {
       | "normal"
       | "align-left"
       | "align-center"
-      | "align-right",
+      | "align-right"
+      | "align-justify",
     color?: string,
   ) => {
     const textarea = textareaRef.current;
@@ -212,7 +214,10 @@ export default function AdminPage() {
         .replace(/\*\*([^*]+)\*\*/g, "$1")
         .replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, "$1")
         .replace(/<color:[^>]+>([\s\S]*?)<\/color>/g, "$1")
-        .replace(/<align:(left|center|right)>([\s\S]*?)<\/align>/g, "$2");
+        .replace(
+          /<align:(left|center|right|justify)>([\s\S]*?)<\/align>/g,
+          "$2",
+        );
       newEnd = start + formatted.length;
     } else if (type === "bold") {
       formatted = `**${selected}**`;
@@ -231,6 +236,9 @@ export default function AdminPage() {
       newEnd = start + formatted.length;
     } else if (type === "align-right") {
       formatted = `<align:right>${selected}</align>`;
+      newEnd = start + formatted.length;
+    } else if (type === "align-justify") {
+      formatted = `<align:justify>${selected}</align>`;
       newEnd = start + formatted.length;
     }
 
@@ -1105,6 +1113,18 @@ export default function AdminPage() {
                       data-ocid="admin.content.format-align-right.button"
                     >
                       <AlignRight className="w-3.5 h-3.5" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 hover:bg-muted hover:text-foreground"
+                      onClick={() => applyFormat("align-justify")}
+                      title="Justify"
+                      data-ocid="admin.content.format-align-justify.button"
+                    >
+                      <AlignJustify className="w-3.5 h-3.5" />
                     </Button>
 
                     <div className="ml-auto text-xs text-muted-foreground hidden sm:block">

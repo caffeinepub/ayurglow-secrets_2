@@ -109,9 +109,10 @@ const blogPostRoute = createRoute({
   component: BlogPostPage,
 });
 
+// Secret admin route - not linked anywhere on the site
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/admin",
+  path: "/my-admin-panel",
   component: AdminPage,
 });
 

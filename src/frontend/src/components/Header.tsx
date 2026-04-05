@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Link, useLocation } from "@tanstack/react-router";
-import { Menu, X } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useState } from "react";
 
 const navLinks = [
@@ -12,7 +12,6 @@ const navLinks = [
   { to: "/lifestyle", label: "Lifestyle" },
   { to: "/chronic", label: "Chronic Health" },
   { to: "/blog", label: "Blog" },
-  { to: "/admin", label: "Admin" },
 ];
 
 export default function Header() {

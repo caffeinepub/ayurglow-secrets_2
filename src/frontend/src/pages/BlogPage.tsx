@@ -124,15 +124,8 @@ export default function BlogPage() {
               <p className="text-sm">
                 {search
                   ? "Try a different search term."
-                  : "Be the first to publish an Ayurvedic blog post!"}
+                  : "No posts published yet. Check back soon!"}
               </p>
-              <Link
-                to="/admin"
-                className="mt-4 inline-block text-brand-blue font-medium text-sm hover:underline"
-                data-ocid="blog.admin.link"
-              >
-                Go to Admin Panel →
-              </Link>
             </div>
           ) : (
             <div
@@ -143,84 +136,70 @@ export default function BlogPage() {
                 const coverUrl = post.coverImage?.getDirectURL() ?? null;
                 const visibleTags = getVisibleTags(post.tags || []);
                 return (
-                  <div key={post.id} data-ocid={`blog.item.${i + 1}`}>
-                    <Link to="/blog/$id" params={{ id: post.id }}>
-                      <Card className="h-full overflow-hidden card-hover border-border">
-                        <div className="h-48 bg-gradient-to-br from-[oklch(0.38_0.12_225)] to-[oklch(0.42_0.14_155)] overflow-hidden">
-                          {coverUrl ? (
-                            <img
-                              src={coverUrl}
-                              alt={post.title}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display =
-                                  "none";
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-5xl text-white/30">
-                              🌿
-                            </div>
-                          )}
+                  <Link
+                    key={post.id}
+                    to="/blog/$id"
+                    params={{ id: post.id }}
+                    data-ocid={`blog.post.${i}.link`}
+                  >
+                    <Card className="group overflow-hidden rounded-xl border border-border bg-white hover:shadow-md transition-shadow h-full">
+                      {coverUrl ? (
+                        <div className="overflow-hidden h-48">
+                          <img
+                            src={coverUrl}
+                            alt={post.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
                         </div>
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-2 mb-3">
+                      ) : (
+                        <div className="h-48 bg-gradient-to-br from-[oklch(0.92_0.04_230)] to-[oklch(0.90_0.05_155)] flex items-center justify-center">
+                          <span className="text-4xl">🌿</span>
+                        </div>
+                      )}
+                      <CardContent className="p-5">
+                        <div className="flex items-center gap-2 mb-2">
+                          {post.category && (
                             <Badge
                               variant="secondary"
-                              className="text-xs capitalize bg-[oklch(0.92_0.04_165)] text-[oklch(0.25_0.08_155)]"
+                              className="text-xs bg-blue-50 text-brand-blue border-0"
                             >
-                              {post.category}
+                              {CATEGORY_LABELS[post.category] ?? post.category}
                             </Badge>
-                            {post.subcategory && (
-                              <Badge
-                                variant="outline"
-                                className="text-xs capitalize"
-                              >
-                                {post.subcategory}
-                              </Badge>
-                            )}
-                          </div>
-                          <h3 className="font-display text-base font-semibold text-foreground mb-2 leading-snug line-clamp-2">
-                            {post.title}
-                          </h3>
-                          <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mb-4">
-                            {post.excerpt}
-                          </p>
-                          {visibleTags.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mb-3">
-                              {visibleTags.slice(0, 3).map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full"
-                                >
-                                  #{tag}
-                                </span>
-                              ))}
-                            </div>
                           )}
-                          <div className="flex items-center justify-between">
-                            {post.publishedAt ? (
-                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <Calendar className="w-3.5 h-3.5" />
-                                {new Date(
-                                  Number(post.publishedAt) / 1_000_000,
-                                ).toLocaleDateString("en-IN", {
-                                  day: "numeric",
-                                  month: "short",
-                                  year: "numeric",
-                                })}
-                              </div>
-                            ) : (
-                              <span />
-                            )}
-                            <span className="text-xs text-brand-blue font-medium flex items-center gap-1">
-                              Read More <ArrowRight className="w-3 h-3" />
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  </div>
+                          {visibleTags.slice(0, 1).map((tag) => (
+                            <Badge
+                              key={tag}
+                              variant="outline"
+                              className="text-xs"
+                            >
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                        <h2 className="font-display font-semibold text-foreground text-lg leading-snug mb-2 group-hover:text-brand-blue transition-colors line-clamp-2">
+                          {post.title}
+                        </h2>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                          {post.excerpt}
+                        </p>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(
+                              Number(post.publishedAt),
+                            ).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </span>
+                          <span className="flex items-center gap-1 text-brand-blue font-medium">
+                            Read more <ArrowRight className="w-3 h-3" />
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
             </div>
